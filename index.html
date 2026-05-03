@@ -762,7 +762,22 @@ let state = {
 // =================== INIT ===================
 window.onload = () => {
   loadGoogleAPI();
+  // Push initial state so back button has somewhere to go
+  history.pushState({ screen: 'setup' }, '');
 };
+
+// Intercept back button
+window.addEventListener('popstate', (event) => {
+  if (document.getElementById('game-screen').classList.contains('active')) {
+    // If in game, back button shows end game confirmation
+    endGame();
+    // Push state again so next back press works too
+    history.pushState({ screen: 'game' }, '');
+  } else if (document.getElementById('setup-screen').classList.contains('active')) {
+    // If on setup, push state again to prevent leaving app
+    history.pushState({ screen: 'setup' }, '');
+  }
+});
 
 function loadGoogleAPI() {
   const script = document.createElement('script');
@@ -840,11 +855,13 @@ function setConnected(val) {
 function showSetup() {
   document.getElementById('setup-screen').classList.add('active');
   document.getElementById('game-screen').classList.remove('active');
+  history.pushState({ screen: 'setup' }, '');
 }
 
 function showGame() {
   document.getElementById('setup-screen').classList.remove('active');
   document.getElementById('game-screen').classList.add('active');
+  history.pushState({ screen: 'game' }, '');
 }
 
 // =================== LOAD GAME ===================
@@ -901,8 +918,11 @@ async function loadLatestGame() {
     document.getElementById('latest-game-info').textContent = `${dateStr} · Game ${gameNum} · ID: ${gameId}`;
     document.getElementById('latest-game-players').textContent = players.map(p => p.name).join(', ') || 'No players found';
 
+    // Store on state so onclick closure always has fresh values
+    state.pendingGameId = gameId;
+    state.pendingPlayers = players;
     btn.textContent = '✓ Load This Game';
-    btn.onclick = () => loadGameById(gameId, players);
+    btn.onclick = () => loadGameById(state.pendingGameId, state.pendingPlayers);
     btn.disabled = false;
 
   } catch (err) {
