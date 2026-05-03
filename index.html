@@ -1346,9 +1346,18 @@ function parseVoiceInput(transcript) {
     }
   }
 
+  // Strip out directional "to" before player names so it doesn't get parsed as number 2
+  // e.g. "deals 5 to Walter" — remove " to [playername]" patterns first
+  let textForNumbers = text;
+  state.players.forEach(p => {
+    textForNumbers = textForNumbers.replace(new RegExp('\\bto\\s+' + p.name.toLowerCase() + '\\b', 'g'), p.name.toLowerCase());
+    textForNumbers = textForNumbers.replace(new RegExp('\\bto\\s+' + (p.name.toLowerCase() === 'walter' ? 'walt' : '') + '\\b', 'g'), '');
+    textForNumbers = textForNumbers.replace(new RegExp('\\bto\\s+' + (p.name.toLowerCase() === 'ezra' ? 'ez' : '') + '\\b', 'g'), '');
+  });
+
   // Find number(s) — extract all numbers
-  const numbers = text.match(/\b(\d+|one|two|to|too|three|four|for|five|six|seven|eight|ate|nine|ten|eleven|twelve|fifteen|twenty)\b/g) || [];
-  const wordToNum = {one:1,two:2,to:2,too:2,three:3,four:4,for:4,five:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20};
+  const numbers = textForNumbers.match(/\b(\d+|one|two|too|three|four|for|five|six|seven|eight|ate|nine|ten|eleven|twelve|fifteen|twenty)\b/g) || [];
+  const wordToNum = {one:1,two:2,too:2,three:3,four:4,for:4,five:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20};
   const numValues = numbers.map(n => isNaN(n) ? (wordToNum[n] || 1) : parseInt(n));
   parsed.amount = numValues[0] || 1;
 
