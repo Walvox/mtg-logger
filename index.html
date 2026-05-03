@@ -1007,7 +1007,15 @@ async function toggleGamesList() {
 
   try {
     const rows = await fetchGameLogRows();
-    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '').sort((a, b) => parseFloat(b[0]) - parseFloat(a[0])).slice(0, 20);
+    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '').sort((a, b) => {
+      // Parse date strings like "4/26/2026" into comparable values
+      const dateA = new Date(a[0]);
+      const dateB = new Date(b[0]);
+      if (isNaN(dateA) || isNaN(dateB)) return 0;
+      // Sort by date descending, then by game number descending
+      if (dateB - dateA !== 0) return dateB - dateA;
+      return parseFloat(b[1] || 0) - parseFloat(a[1] || 0);
+    }).slice(0, 20);
 
     list.innerHTML = dataRows.map(row => {
       const players = parsePlayersFromRow(row);
