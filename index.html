@@ -1351,14 +1351,21 @@ function parseVoiceInput(transcript) {
   // Pad text with spaces so word boundary checks work on first/last words
   const paddedText = ' ' + text + ' ';
 
+  // DEBUG — show what we're matching against
+  let debugLog = 'TEXT: ' + paddedText + '\n';
+
   // Find action type — check longer phrases first within each action
   for (const [action, keywords] of Object.entries(ACTION_KEYWORDS)) {
     const sorted = [...keywords].sort((a, b) => b.length - a.length);
-    if (sorted.some(kw => paddedText.includes(kw))) {
+    const matched = sorted.find(kw => paddedText.includes(kw));
+    if (matched) {
+      debugLog += 'MATCHED: ' + action + ' via "' + matched + '"';
       parsed.action = action;
       break;
     }
   }
+  if (!parsed.action) debugLog += 'NO ACTION MATCHED';
+  document.getElementById('voice-transcript').textContent = debugLog;
 
   // Strip out directional "to" before player names so it doesn't get parsed as number 2
   // e.g. "deals 5 to Walter" — remove " to [playername]" patterns first
