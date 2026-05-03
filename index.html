@@ -1348,9 +1348,11 @@ function parseVoiceInput(transcript) {
     }
   }
 
-  // Find action type
+  // Find action type — check longer phrases first within each action
   for (const [action, keywords] of Object.entries(ACTION_KEYWORDS)) {
-    if (keywords.some(kw => text.includes(kw))) {
+    // Sort keywords by length descending so longer/more specific phrases match first
+    const sorted = [...keywords].sort((a, b) => b.length - a.length);
+    if (sorted.some(kw => text.includes(kw))) {
       parsed.action = action;
       break;
     }
