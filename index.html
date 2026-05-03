@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>MTG Action Logger</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --surface3: #22223a;
+    --border: #2a2a40;
+    --accent: #7c4dff;
+    --accent2: #e040fb;
+    --red: #ff4444;
+    --green: #00e676;
+    --gold: #ffd740;
+    --blue: #40c4ff;
+    --orange: #ff6d00;
+    --text: #e8e8f0;
+    --text-dim: #888899;
+    --text-dimmer: #555566;
+    --glow: rgba(124, 77, 255, 0.3);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 500;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: 
+      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(124,77,255,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 100%, rgba(224,64,251,0.06) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 16px; }
+
+  /* HEADER */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .header-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 20px var(--glow);
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-family: 'Cinzel', serif;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #fff, #b39ddb);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header-sub { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dimmer);
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* SETUP SCREEN */
+  #setup-screen, #game-screen { display: none; }
+  #setup-screen.active, #game-screen.active { display: block; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .input-row { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .input-row label { font-size: 13px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+  .input-row input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    padding: 12px 14px;
+    width: 100%;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .input-row input:focus { border-color: var(--accent); }
+  .input-row input::placeholder { color: var(--text-dimmer); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 13px 20px;
+    border-radius: 12px;
+    border: none;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    width: 100%;
+    box-shadow: 0 4px 20px var(--glow);
+  }
+  .btn-primary:hover { box-shadow: 0 4px 30px rgba(124,77,255,0.5); }
+  .btn-ghost {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
+  .btn-danger { background: rgba(255,68,68,0.15); border: 1px solid rgba(255,68,68,0.3); color: var(--red); }
+
+  /* GAME SCREEN */
+  .game-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .game-id-badge {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: monospace;
+    letter-spacing: 1px;
+  }
+  .turn-counter {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .turn-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .turn-number {
+    font-family: 'Cinzel', serif;
+    font-size: 28px;
+    font-weight: 900;
+    color: var(--gold);
+    text-shadow: 0 0 20px rgba(255,215,64,0.4);
+    min-width: 40px;
+    text-align: center;
+  }
+  .turn-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .turn-btn:active { background: var(--accent); transform: scale(0.9); }
+
+  /* VOICE SECTION */
+  .voice-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .mic-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+    cursor: pointer;
+    margin: 0 auto 14px;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .mic-btn:active { transform: scale(0.92); }
+  .mic-btn.listening {
+    background: rgba(255,68,68,0.15);
+    border-color: var(--red);
+    box-shadow: 0 0 0 0 rgba(255,68,68,0.4);
+    animation: pulse-ring 1s ease-out infinite;
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(255,68,68,0.4); }
+    70% { box-shadow: 0 0 0 20px rgba(255,68,68,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,68,68,0); }
+  }
+  .voice-transcript {
+    min-height: 44px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 15px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-bottom: 12px;
+    text-align: left;
+    transition: all 0.2s;
+  }
+  .voice-transcript.active { color: var(--text); border-color: var(--accent); font-style: normal; }
+  .voice-hint { font-size: 12px; color: var(--text-dimmer); letter-spacing: 0.5px; }
+
+  /* MANUAL ENTRY */
+  .section-title {
+    font-size: 11px;
+    color: var(--text-dimmer);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* PLAYER GRID */
+  .player-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .player-btn {
+    padding: 10px 8px;
+    border-radius: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .player-btn:active { transform: scale(0.93); }
+  .player-btn.selected-actor {
+    background: rgba(124,77,255,0.2);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(124,77,255,0.3);
+  }
+  .player-btn.selected-target {
+    background: rgba(255,109,0,0.2);
+    border-color: var(--orange);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(255,109,0,0.3);
+  }
+  .player-btn.selected-actor.selected-target {
+    background: rgba(255,68,68,0.2);
+    border-color: var(--red);
+  }
+
+  /* ACTION TYPES */
+  .action-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .action-btn {
+    padding: 11px 8px;
+    border-radius: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    -webkit-user-select: none; user-select: none;
+  }
+  .action-btn:active { transform: scale(0.95); }
+  .action-btn.selected { border-width: 2px; }
+  .action-btn[data-action="Combat Damage"].selected { background: rgba(255,68,68,0.2); border-color: var(--red); }
+  .action-btn[data-action="Heal"].selected { background: rgba(0,230,118,0.15); border-color: var(--green); }
+  .action-btn[data-action="Self Damage"].selected { background: rgba(255,109,0,0.15); border-color: var(--orange); }
+  .action-btn[data-action="Commander Cast"].selected { background: rgba(64,196,255,0.15); border-color: var(--blue); }
+  .action-btn[data-action="Board Wipe?"].selected { background: rgba(224,64,251,0.15); border-color: var(--accent2); }
+  .action-btn[data-action="Player Kill"].selected { background: rgba(255,68,68,0.3); border-color: var(--red); }
+  .action-btn[data-action="Mana Screwed?"].selected { background: rgba(255,215,64,0.1); border-color: var(--gold); }
+  .action-btn[data-action="Mana Flood?"].selected { background: rgba(64,196,255,0.1); border-color: var(--blue); }
+
+  /* AMOUNT */
+  .amount-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 14px;
+  }
+  .amount-label { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+  .amount-controls { display: flex; align-items: center; gap: 8px; }
+  .amount-btn {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .amount-btn:active { background: var(--accent); transform: scale(0.9); }
+  .amount-display {
+    font-family: 'Cinzel', serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text);
+    min-width: 48px;
+    text-align: center;
+  }
+  .amount-input-direct {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'Cinzel', serif;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 6px 10px;
+    width: 70px;
+    text-align: center;
+    outline: none;
+  }
+  .amount-input-direct:focus { border-color: var(--accent); }
+
+  /* PREVIEW */
+  .preview-card {
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    display: none;
+  }
+  .preview-card.visible { display: block; }
+  .preview-text {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .preview-meta { font-size: 12px; color: var(--text-dim); letter-spacing: 0.5px; }
+
+  /* LOG ACTIONS BTN */
+  .log-btn {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    color: #fff;
+    font-family: 'Cinzel', serif;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 20px var(--glow);
+    margin-bottom: 16px;
+  }
+  .log-btn:active { transform: scale(0.97); }
+  .log-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* SESSION LOG */
+  .session-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .log-entries { max-height: 200px; overflow-y: auto; }
+  .log-entry {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .log-entry:last-child { border-bottom: none; }
+  .log-turn {
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 700;
+    min-width: 32px;
+    padding-top: 1px;
+  }
+  .log-desc { color: var(--text); flex: 1; }
+  .log-type {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .log-empty { color: var(--text-dimmer); font-size: 13px; text-align: center; padding: 20px 0; font-style: italic; }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    z-index: 1000;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    opacity: 0;
+    white-space: nowrap;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .toast.success { border-color: var(--green); color: var(--green); }
+  .toast.error { border-color: var(--red); color: var(--red); }
+
+  /* AUTH */
+  #auth-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .auth-notice {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+
+  /* MULTI-TARGET */
+  .multi-target-section { margin-bottom: 14px; }
+  .target-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-height: 34px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 8px;
+    margin-top: 6px;
+  }
+  .target-tag {
+    display: flex; align-items: center; gap: 4px;
+    background: rgba(255,109,0,0.2);
+    border: 1px solid var(--orange);
+    border-radius: 6px;
+    padding: 2px 8px 2px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+  }
+  .target-tag span { font-size: 11px; color: var(--orange); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .divider {
+    height: 1px; background: var(--border);
+    margin: 14px 0;
+  }
+
+  .flex-row { display: flex; gap: 8px; }
+  .flex-row .btn { flex: 1; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: rgba(124,77,255,0.15);
+    border: 1px solid rgba(124,77,255,0.3);
+    color: #b39ddb;
+    margin-left: 6px;
+  }
+
+  .players-summary {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 8px;
+  }
+  .player-chip {
+    padding: 4px 10px;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-icon">⚔️</div>
+    <div>
+      <h1>MTG Action Logger</h1>
+      <div class="header-sub">Voice · Fast · Real-time</div>
+    </div>
+    <div class="status-dot" id="status-dot"></div>
+  </div>
+
+  <!-- AUTH SECTION -->
+  <div id="auth-section">
+    <div class="card-title">🔐 Google Sheets Connection</div>
+    <div class="auth-notice">
+      This tool writes directly to your Google Sheet. Click the button below to authorize access — you'll only need to do this once per session.
+    </div>
+    <div class="input-row">
+      <label>Client ID</label>
+      <input type="text" id="client-id-input" placeholder="Paste your OAuth Client ID here" />
+    </div>
+    <button class="btn btn-primary" onclick="initGoogleAuth()" id="auth-btn">
+      🔑 Connect to Google Sheets
+    </button>
+  </div>
+
+  <!-- SETUP SCREEN -->
+  <div id="setup-screen">
+    <div class="card">
+      <div class="card-title">🎮 Game Setup</div>
+      <div class="input-row">
+        <label>Game ID <span style="color:var(--text-dimmer);font-size:11px">(from AppSheet)</span></label>
+        <input type="text" id="game-id-input" placeholder="e.g. 5ac5b9c3" />
+      </div>
+      <button class="btn btn-primary" onclick="loadGame()" id="load-btn">
+        ⚡ Load Game
+      </button>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game-screen">
+
+    <!-- Game Header -->
+    <div class="game-header">
+      <div>
+        <div class="game-id-badge" id="active-game-id">—</div>
+        <div class="players-summary" id="players-summary"></div>
+      </div>
+      <div class="turn-counter">
+        <div class="turn-label">Turn</div>
+        <div class="turn-btn" onclick="changeTurn(-1)">−</div>
+        <div class="turn-number" id="turn-display">1</div>
+        <div class="turn-btn" onclick="changeTurn(1)">+</div>
+      </div>
+    </div>
+
+    <!-- VOICE INPUT -->
+    <div class="voice-section">
+      <div class="mic-btn" id="mic-btn" onclick="toggleVoice()">🎙️</div>
+      <div class="voice-transcript" id="voice-transcript">Tap mic and speak an action...</div>
+      <div class="voice-hint">Try: "Ezra deals 5 to Walter and 3 to Nate" · "Walter heals 4" · "Board wipe" · "Nate kills James"</div>
+    </div>
+
+    <!-- MANUAL ENTRY -->
+    <div class="card">
+      <div class="card-title">Manual Entry</div>
+
+      <!-- ACTOR -->
+      <div class="section-title">⚔️ Actor (who's acting)</div>
+      <div class="player-grid" id="actor-grid"></div>
+
+      <div class="divider"></div>
+
+      <!-- ACTION TYPE -->
+      <div class="section-title">Action Type</div>
+      <div class="action-grid">
+        <div class="action-btn" data-action="Combat Damage" onclick="selectAction(this)">⚔️ Combat Damage</div>
+        <div class="action-btn" data-action="Heal" onclick="selectAction(this)">💚 Heal</div>
+        <div class="action-btn" data-action="Self Damage" onclick="selectAction(this)">🩸 Self Damage</div>
+        <div class="action-btn" data-action="Commander Cast" onclick="selectAction(this)">👑 Commander Cast</div>
+        <div class="action-btn" data-action="Board Wipe?" onclick="selectAction(this)">💥 Board Wipe?</div>
+        <div class="action-btn" data-action="Player Kill" onclick="selectAction(this)">💀 Player Kill</div>
+        <div class="action-btn" data-action="Mana Screwed?" onclick="selectAction(this)">🏜️ Mana Screwed?</div>
+        <div class="action-btn" data-action="Mana Flood?" onclick="selectAction(this)">🌊 Mana Flood?</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- TARGET(S) -->
+      <div class="section-title">🎯 Target(s) — tap to add/remove</div>
+      <div class="player-grid" id="target-grid"></div>
+      <div class="target-tags" id="target-tags"><span style="color:var(--text-dimmer);font-size:12px;padding:2px 0">No targets selected</span></div>
+
+      <div class="divider"></div>
+
+      <!-- AMOUNT -->
+      <div class="amount-row">
+        <div class="amount-label">Amount</div>
+        <div class="amount-controls">
+          <div class="amount-btn" onclick="changeAmount(-1)">−</div>
+          <input class="amount-input-direct" type="number" id="amount-input" value="1" min="0" max="999" />
+          <div class="amount-btn" onclick="changeAmount(1)">+</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PREVIEW -->
+    <div class="preview-card" id="preview-card">
+      <div class="preview-text" id="preview-text">—</div>
+      <div class="preview-meta" id="preview-meta">—</div>
+    </div>
+
+    <!-- LOG BUTTON -->
+    <button class="log-btn" id="log-btn" onclick="logActions()" disabled>
+      ✦ LOG ACTION ✦
+    </button>
+
+    <!-- SESSION LOG -->
+    <div class="session-log">
+      <div class="card-title">Session Log <span class="badge" id="log-count">0</span></div>
+      <div class="log-entries" id="log-entries">
+        <div class="log-empty">No actions logged yet</div>
+      </div>
+    </div>
+
+    <!-- END GAME -->
+    <div class="flex-row" style="margin-bottom:24px">
+      <button class="btn btn-ghost" onclick="endGame()">← New Game</button>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// =================== CONFIG ===================
+const SPREADSHEET_ID = '1U2odhWbq8BbvMirO7wcjid8BMpPylGHMJgDYljmbcM0';
+const ACTION_LOG_SHEET = 'Action Log';
+const GAME_LOG_SHEET = 'Game Log';
+const PLAYER_STATS_SHEET = 'Player Stats';
+
+// Player ID mapping (from your sheet)
+const PLAYER_MAP = {
+  'ezra': 1, 'james': 2, 'josh': 3, 'justine': 4,
+  'kingston': 5, 'nate': 6, 'victor': 7, 'walter': 8, 'bianca': 9
+};
+const PLAYER_ID_TO_NAME = {
+  1:'Ezra', 2:'James', 3:'Josh', 4:'Justine',
+  5:'Kingston', 6:'Nate', 7:'Victor', 8:'Walter', 9:'Bianca'
+};
+
+// Action keyword map for voice parsing
+const ACTION_KEYWORDS = {
+  'Combat Damage': ['deals','deal','hit','hits','attacks','attacked','damage','damages','swings','swung','strikes','struck'],
+  'Heal': ['heal','heals','healed','gains','gained','life','recover','recovers'],
+  'Self Damage': ['self damage','hurts himself','hurts herself','hurts themselves','pays life','paid life','loses life','lost life'],
+  'Commander Cast': ['cast commander','casts commander','commander cast','commander out','plays commander'],
+  'Board Wipe?': ['board wipe','wipe','wraths','wrath','sweeper','sweeps','clears the board','destroys everything','destroys all'],
+  'Player Kill': ['kills','kill','killed','eliminates','eliminated','knocks out','knocked out','takes out','took out','defeats','defeated'],
+  'Mana Screwed?': ['mana screwed','screwed','no mana','cant play','can\'t play','stuck on lands','stuck on'],
+  'Mana Flood?': ['mana flood','flooded','too much mana','all lands','drawing lands','only lands']
+};
+
+// =================== STATE ===================
+let state = {
+  gameId: null,
+  players: [], // [{id, name}]
+  turn: 1,
+  actor: null,
+  action: null,
+  targets: [], // [{id, name, amount}]
+  amount: 1,
+  sessionLog: [],
+  accessToken: null,
+  clientId: null,
+  recognition: null,
+  isListening: false
+};
+
+// =================== INIT ===================
+window.onload = () => {
+  const savedClientId = localStorage.getItem('mtg_client_id');
+  if (savedClientId) {
+    document.getElementById('client-id-input').value = savedClientId;
+  }
+  loadGoogleAPI();
+};
+
+function loadGoogleAPI() {
+  const script = document.createElement('script');
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.onload = () => {
+    checkSavedToken();
+  };
+  document.head.appendChild(script);
+
+  const gapiScript = document.createElement('script');
+  gapiScript.src = 'https://apis.google.com/js/api.js';
+  gapiScript.onload = () => {
+    gapi.load('client', () => {
+      gapi.client.init({
+        discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4']
+      });
+    });
+  };
+  document.head.appendChild(gapiScript);
+}
+
+function checkSavedToken() {
+  const token = sessionStorage.getItem('mtg_access_token');
+  const expiry = sessionStorage.getItem('mtg_token_expiry');
+  if (token && expiry && Date.now() < parseInt(expiry)) {
+    state.accessToken = token;
+    gapi.client.setToken({ access_token: token });
+    setConnected(true);
+    showSetup();
+  } else {
+    showSetup();
+  }
+}
+
+// =================== AUTH ===================
+function initGoogleAuth() {
+  const clientId = document.getElementById('client-id-input').value.trim();
+  if (!clientId) { showToast('Please enter your Client ID', 'error'); return; }
+  
+  state.clientId = clientId;
+  localStorage.setItem('mtg_client_id', clientId);
+
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    callback: (response) => {
+      if (response.error) {
+        showToast('Auth failed: ' + response.error, 'error');
+        return;
+      }
+      state.accessToken = response.access_token;
+      const expiry = Date.now() + (response.expires_in * 1000);
+      sessionStorage.setItem('mtg_access_token', response.access_token);
+      sessionStorage.setItem('mtg_token_expiry', expiry.toString());
+      gapi.client.setToken({ access_token: response.access_token });
+      setConnected(true);
+      showToast('Connected to Google Sheets!', 'success');
+    }
+  });
+  client.requestAccessToken();
+}
+
+function setConnected(val) {
+  document.getElementById('status-dot').className = 'status-dot' + (val ? ' connected' : '');
+  if (val) {
+    document.getElementById('auth-section').style.display = 'none';
+  }
+}
+
+// =================== SCREENS ===================
+function showSetup() {
+  document.getElementById('setup-screen').classList.add('active');
+  document.getElementById('game-screen').classList.remove('active');
+}
+
+function showGame() {
+  document.getElementById('setup-screen').classList.remove('active');
+  document.getElementById('game-screen').classList.add('active');
+}
+
+// =================== LOAD GAME ===================
+async function loadGame() {
+  const gameId = document.getElementById('game-id-input').value.trim().toLowerCase();
+  if (!gameId) { showToast('Enter a Game ID', 'error'); return; }
+  if (!state.accessToken) { showToast('Connect to Google Sheets first', 'error'); return; }
+
+  document.getElementById('load-btn').textContent = 'Loading...';
+
+  try {
+    // Read Game Log to find players in this game
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${GAME_LOG_SHEET}!A:N`
+    });
+
+    const rows = response.result.values || [];
+    const headers = rows[0];
+    
+    // Find game row
+    const gameRow = rows.find(r => r[2] && r[2].toLowerCase() === gameId);
+    
+    if (!gameRow) {
+      showToast('Game ID not found. Check AppSheet.', 'error');
+      document.getElementById('load-btn').textContent = '⚡ Load Game';
+      return;
+    }
+
+    // The Game Log columns: Date, Game#, Game ID, Winner, First Blood, James, Walter, Ezra, Nate, Justine, Victor, Josh, Kingston, Bianca
+    // Players are in columns 5-13 (index 5+)
+    const playerColumns = [
+      { name: 'James', col: 5 }, { name: 'Walter', col: 6 }, { name: 'Ezra', col: 7 },
+      { name: 'Nate', col: 8 }, { name: 'Justine', col: 9 }, { name: 'Victor', col: 10 },
+      { name: 'Josh', col: 11 }, { name: 'Kingston', col: 12 }, { name: 'Bianca', col: 13 }
+    ];
+
+    state.players = [];
+    playerColumns.forEach(p => {
+      if (gameRow[p.col] && gameRow[p.col].trim() !== '') {
+        state.players.push({ id: PLAYER_MAP[p.name.toLowerCase()], name: p.name });
+      }
+    });
+
+    if (state.players.length === 0) {
+      showToast('No players found for this game', 'error');
+      document.getElementById('load-btn').textContent = '⚡ Load Game';
+      return;
+    }
+
+    state.gameId = gameId;
+    state.turn = 1;
+    state.sessionLog = [];
+    
+    setupGameScreen();
+    showGame();
+    showToast(`Game loaded — ${state.players.length} players`, 'success');
+
+  } catch (err) {
+    console.error(err);
+    showToast('Error loading game. Check connection.', 'error');
+    document.getElementById('load-btn').textContent = '⚡ Load Game';
+  }
+}
+
+function setupGameScreen() {
+  document.getElementById('active-game-id').textContent = state.gameId;
+  document.getElementById('turn-display').textContent = state.turn;
+  
+  // Players summary
+  const summary = document.getElementById('players-summary');
+  summary.innerHTML = state.players.map(p => 
+    `<div class="player-chip">${p.name}</div>`
+  ).join('');
+
+  // Actor grid
+  const actorGrid = document.getElementById('actor-grid');
+  actorGrid.innerHTML = state.players.map(p =>
+    `<div class="player-btn" data-player-id="${p.id}" data-player-name="${p.name}" onclick="selectActor(this)">${p.name}</div>`
+  ).join('');
+
+  // Target grid
+  const targetGrid = document.getElementById('target-grid');
+  targetGrid.innerHTML = state.players.map(p =>
+    `<div class="player-btn" data-player-id="${p.id}" data-player-name="${p.name}" onclick="toggleTarget(this)">${p.name}</div>`
+  ).join('');
+
+  // Reset state
+  state.actor = null;
+  state.action = null;
+  state.targets = [];
+  state.amount = 1;
+  document.getElementById('amount-input').value = 1;
+  document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('selected'));
+  updateLogBtn();
+  renderSessionLog();
+}
+
+// =================== CONTROLS ===================
+function selectActor(btn) {
+  document.querySelectorAll('#actor-grid .player-btn').forEach(b => b.classList.remove('selected-actor'));
+  btn.classList.add('selected-actor');
+  state.actor = { id: parseInt(btn.dataset.playerId), name: btn.dataset.playerName };
+  updatePreview();
+  updateLogBtn();
+}
+
+function selectAction(btn) {
+  document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  state.action = btn.dataset.action;
+  updatePreview();
+  updateLogBtn();
+}
+
+function toggleTarget(btn) {
+  const id = parseInt(btn.dataset.playerId);
+  const name = btn.dataset.playerName;
+  const existing = state.targets.findIndex(t => t.id === id);
+  
+  if (existing >= 0) {
+    state.targets.splice(existing, 1);
+    btn.classList.remove('selected-target');
+  } else {
+    state.targets.push({ id, name, amount: parseInt(document.getElementById('amount-input').value) || 1 });
+    btn.classList.add('selected-target');
+  }
+  renderTargetTags();
+  updatePreview();
+  updateLogBtn();
+}
+
+function renderTargetTags() {
+  const container = document.getElementById('target-tags');
+  if (state.targets.length === 0) {
+    container.innerHTML = '<span style="color:var(--text-dimmer);font-size:12px;padding:2px 0">No targets selected</span>';
+    return;
+  }
+  container.innerHTML = state.targets.map(t =>
+    `<div class="target-tag" onclick="removeTarget(${t.id})">${t.name} <span>✕</span></div>`
+  ).join('');
+}
+
+function removeTarget(id) {
+  state.targets = state.targets.filter(t => t.id !== id);
+  document.querySelectorAll('#target-grid .player-btn').forEach(btn => {
+    if (parseInt(btn.dataset.playerId) === id) btn.classList.remove('selected-target');
+  });
+  renderTargetTags();
+  updatePreview();
+  updateLogBtn();
+}
+
+function changeTurn(delta) {
+  state.turn = Math.max(1, state.turn + delta);
+  document.getElementById('turn-display').textContent = state.turn;
+}
+
+function changeAmount(delta) {
+  const input = document.getElementById('amount-input');
+  const current = parseInt(input.value) || 0;
+  input.value = Math.max(0, current + delta);
+  state.amount = parseInt(input.value);
+  updatePreview();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const amountInput = document.getElementById('amount-input');
+  if (amountInput) {
+    amountInput.addEventListener('change', () => {
+      state.amount = parseInt(amountInput.value) || 0;
+      updatePreview();
+    });
+  }
+});
+
+// =================== PREVIEW ===================
+function updatePreview() {
+  state.amount = parseInt(document.getElementById('amount-input').value) || 0;
+  const card = document.getElementById('preview-card');
+  const text = document.getElementById('preview-text');
+  const meta = document.getElementById('preview-meta');
+
+  if (!state.actor || !state.action) {
+    card.classList.remove('visible');
+    return;
+  }
+
+  card.classList.add('visible');
+  
+  const needsTarget = ['Combat Damage','Heal','Player Kill','Self Damage'].includes(state.action);
+  
+  if (needsTarget && state.targets.length === 0) {
+    text.textContent = `${state.actor.name} → ${state.action} → select target(s)`;
+    meta.textContent = `Turn ${state.turn} · Amount: ${state.amount}`;
+    return;
+  }
+
+  if (state.targets.length > 0) {
+    const targetStr = state.targets.map(t => t.name).join(', ');
+    text.textContent = `${state.actor.name} → ${state.action} → ${targetStr}`;
+  } else {
+    text.textContent = `${state.actor.name} → ${state.action}`;
+  }
+  
+  const rowCount = state.targets.length > 0 ? state.targets.length : 1;
+  meta.textContent = `Turn ${state.turn} · Amount: ${state.amount} · ${rowCount} row${rowCount > 1 ? 's' : ''} to log`;
+}
+
+function updateLogBtn() {
+  const btn = document.getElementById('log-btn');
+  const needsTarget = ['Combat Damage','Heal','Player Kill','Self Damage'].includes(state.action);
+  const hasTarget = state.targets.length > 0;
+  const ready = state.actor && state.action && (!needsTarget || hasTarget);
+  btn.disabled = !ready;
+  
+  if (ready) {
+    const count = state.targets.length > 1 ? ` (${state.targets.length} rows)` : '';
+    btn.textContent = `✦ LOG ACTION${count} ✦`;
+  } else {
+    btn.textContent = '✦ LOG ACTION ✦';
+  }
+}
+
+// =================== LOG ACTIONS ===================
+async function logActions() {
+  if (!state.accessToken) { showToast('Not connected', 'error'); return; }
+  
+  state.amount = parseInt(document.getElementById('amount-input').value) || 0;
+  
+  // Build rows to write
+  let rows = [];
+  
+  if (state.targets.length > 0) {
+    state.targets.forEach(target => {
+      rows.push(buildRow(state.actor.id, state.action, target.id, state.amount, state.turn));
+    });
+  } else {
+    rows.push(buildRow(state.actor.id, state.action, '', state.amount, state.turn));
+  }
+
+  const btn = document.getElementById('log-btn');
+  btn.textContent = 'Logging...';
+  btn.disabled = true;
+
+  try {
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!A:G`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values: rows }
+    });
+
+    // Add to session log
+    rows.forEach(row => {
+      state.sessionLog.unshift({
+        turn: row[6],
+        actor: PLAYER_ID_TO_NAME[row[2]] || row[2],
+        action: row[3],
+        target: row[4] ? PLAYER_ID_TO_NAME[row[4]] : null,
+        amount: row[5],
+        id: row[0]
+      });
+    });
+
+    renderSessionLog();
+    showToast(`${rows.length} action${rows.length > 1 ? 's' : ''} logged ✓`, 'success');
+
+    // Clear targets after logging, keep actor + action + increment if damage
+    state.targets = [];
+    document.querySelectorAll('#target-grid .player-btn').forEach(b => b.classList.remove('selected-target'));
+    renderTargetTags();
+    updatePreview();
+    updateLogBtn();
+
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to log. Check connection.', 'error');
+  }
+
+  btn.disabled = false;
+  updateLogBtn();
+}
+
+function buildRow(actorId, actionType, targetId, amount, turn) {
+  const actionId = generateId();
+  return [
+    actionId,
+    state.gameId,
+    actorId,
+    actionType,
+    targetId || '',
+    amount,
+    turn
+  ];
+}
+
+function generateId() {
+  return Math.random().toString(16).substr(2, 8);
+}
+
+// =================== SESSION LOG ===================
+function renderSessionLog() {
+  const container = document.getElementById('log-entries');
+  document.getElementById('log-count').textContent = state.sessionLog.length;
+  
+  if (state.sessionLog.length === 0) {
+    container.innerHTML = '<div class="log-empty">No actions logged yet</div>';
+    return;
+  }
+
+  const actionColors = {
+    'Combat Damage': '#ff4444',
+    'Heal': '#00e676',
+    'Self Damage': '#ff6d00',
+    'Commander Cast': '#40c4ff',
+    'Board Wipe?': '#e040fb',
+    'Player Kill': '#ff1744',
+    'Mana Screwed?': '#ffd740',
+    'Mana Flood?': '#40c4ff'
+  };
+
+  container.innerHTML = state.sessionLog.slice(0, 30).map(entry => {
+    const color = actionColors[entry.action] || '#888';
+    const targetStr = entry.target ? ` → ${entry.target}` : '';
+    const amountStr = entry.amount ? ` [${entry.amount}]` : '';
+    return `
+      <div class="log-entry">
+        <div class="log-turn">T${entry.turn}</div>
+        <div class="log-desc">${entry.actor}${targetStr}${amountStr}</div>
+        <div class="log-type" style="background:${color}22;border:1px solid ${color}44;color:${color}">${entry.action.replace('?','').trim()}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// =================== VOICE ===================
+function toggleVoice() {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    showToast('Voice not supported on this browser. Use Chrome.', 'error');
+    return;
+  }
+
+  if (state.isListening) {
+    state.recognition.stop();
+    return;
+  }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  state.recognition = new SpeechRecognition();
+  state.recognition.continuous = false;
+  state.recognition.interimResults = true;
+  state.recognition.lang = 'en-US';
+
+  state.recognition.onstart = () => {
+    state.isListening = true;
+    document.getElementById('mic-btn').classList.add('listening');
+    document.getElementById('mic-btn').textContent = '🔴';
+    document.getElementById('voice-transcript').textContent = 'Listening...';
+    document.getElementById('voice-transcript').classList.add('active');
+  };
+
+  state.recognition.onresult = (event) => {
+    const transcript = Array.from(event.results)
+      .map(r => r[0].transcript).join('');
+    document.getElementById('voice-transcript').textContent = transcript;
+    
+    if (event.results[event.results.length - 1].isFinal) {
+      parseVoiceInput(transcript);
+    }
+  };
+
+  state.recognition.onend = () => {
+    state.isListening = false;
+    document.getElementById('mic-btn').classList.remove('listening');
+    document.getElementById('mic-btn').textContent = '🎙️';
+  };
+
+  state.recognition.onerror = (event) => {
+    showToast('Voice error: ' + event.error, 'error');
+    state.isListening = false;
+    document.getElementById('mic-btn').classList.remove('listening');
+    document.getElementById('mic-btn').textContent = '🎙️';
+  };
+
+  state.recognition.start();
+}
+
+// =================== VOICE PARSER ===================
+function parseVoiceInput(transcript) {
+  const text = transcript.toLowerCase().trim();
+  document.getElementById('voice-transcript').textContent = transcript;
+
+  let parsed = {
+    actor: null,
+    action: null,
+    targets: [],
+    amount: 1
+  };
+
+  // Find actor — first player name mentioned
+  for (const player of state.players) {
+    if (text.includes(player.name.toLowerCase())) {
+      parsed.actor = player;
+      break;
+    }
+  }
+
+  // Find action type
+  for (const [action, keywords] of Object.entries(ACTION_KEYWORDS)) {
+    if (keywords.some(kw => text.includes(kw))) {
+      parsed.action = action;
+      break;
+    }
+  }
+
+  // Find number(s) — extract all numbers
+  const numbers = text.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty)\b/g) || [];
+  const wordToNum = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20};
+  const numValues = numbers.map(n => isNaN(n) ? (wordToNum[n] || 1) : parseInt(n));
+  parsed.amount = numValues[0] || 1;
+
+  // Find targets — all player names mentioned after first one
+  let foundFirst = false;
+  for (const player of state.players) {
+    if (text.includes(player.name.toLowerCase())) {
+      if (!foundFirst) { foundFirst = true; continue; } // skip actor
+      parsed.targets.push(player);
+    }
+  }
+
+  // Self damage edge case — target is same as actor
+  if (parsed.action === 'Self Damage' && parsed.actor) {
+    parsed.targets = [parsed.actor];
+  }
+
+  // Apply parsed results
+  if (parsed.actor) {
+    const actorBtn = document.querySelector(`#actor-grid .player-btn[data-player-name="${parsed.actor.name}"]`);
+    if (actorBtn) selectActor(actorBtn);
+  }
+
+  if (parsed.action) {
+    const actionBtn = document.querySelector(`.action-btn[data-action="${parsed.action}"]`);
+    if (actionBtn) selectAction(actionBtn);
+  }
+
+  if (parsed.targets.length > 0) {
+    // Clear current targets first
+    state.targets = [];
+    document.querySelectorAll('#target-grid .player-btn').forEach(b => b.classList.remove('selected-target'));
+    
+    parsed.targets.forEach(target => {
+      const targetBtn = document.querySelector(`#target-grid .player-btn[data-player-name="${target.name}"]`);
+      if (targetBtn) toggleTarget(targetBtn);
+    });
+  }
+
+  document.getElementById('amount-input').value = parsed.amount;
+  state.amount = parsed.amount;
+  
+  updatePreview();
+  updateLogBtn();
+
+  // Summary toast
+  const parts = [];
+  if (parsed.actor) parts.push(parsed.actor.name);
+  if (parsed.action) parts.push(parsed.action);
+  if (parsed.targets.length) parts.push('→ ' + parsed.targets.map(t=>t.name).join(', '));
+  showToast(parts.join(' · ') || 'Could not parse — check fields', parts.length > 0 ? 'success' : 'error');
+}
+
+// =================== UTILS ===================
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+function endGame() {
+  state.gameId = null;
+  state.players = [];
+  state.sessionLog = [];
+  document.getElementById('game-id-input').value = '';
+  document.getElementById('load-btn').textContent = '⚡ Load Game';
+  showSetup();
+}
+</script>
+</body>
+</html>
