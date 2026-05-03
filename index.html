@@ -564,11 +564,7 @@
   <div id="auth-section">
     <div class="card-title">🔐 Google Sheets Connection</div>
     <div class="auth-notice">
-      This tool writes directly to your Google Sheet. Click the button below to authorize access — you'll only need to do this once per session.
-    </div>
-    <div class="input-row">
-      <label>Client ID</label>
-      <input type="text" id="client-id-input" placeholder="Paste your OAuth Client ID here" />
+      Click below to connect your Google account and access the MTG sheet.
     </div>
     <button class="btn btn-primary" onclick="initGoogleAuth()" id="auth-btn">
       🔑 Connect to Google Sheets
@@ -757,10 +753,6 @@ let state = {
 
 // =================== INIT ===================
 window.onload = () => {
-  const savedClientId = localStorage.getItem('mtg_client_id');
-  if (savedClientId) {
-    document.getElementById('client-id-input').value = savedClientId;
-  }
   loadGoogleAPI();
 };
 
@@ -808,11 +800,8 @@ function checkSavedToken() {
 
 // =================== AUTH ===================
 function initGoogleAuth() {
-  const clientId = document.getElementById('client-id-input').value.trim();
-  if (!clientId) { showToast('Please enter your Client ID', 'error'); return; }
-  
+  const clientId = '391153256248-h8iiji60b4vvur3nu5rk3t86p43k6j69.apps.googleusercontent.com';
   state.clientId = clientId;
-  localStorage.setItem('mtg_client_id', clientId);
 
   const client = google.accounts.oauth2.initTokenClient({
     client_id: clientId,
