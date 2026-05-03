@@ -609,14 +609,11 @@
         <div class="game-id-badge" id="active-game-id">—</div>
         <div class="players-summary" id="players-summary"></div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div class="turn-counter">
-          <div class="turn-label">Turn</div>
-          <div class="turn-btn" onclick="changeTurn(-1)">−</div>
-          <div class="turn-number" id="turn-display">1</div>
-          <div class="turn-btn" onclick="changeTurn(1)">+</div>
-        </div>
-        <button class="btn btn-danger" onclick="endGame()" style="padding:8px 14px;font-size:13px;white-space:nowrap;">⏹ End Game</button>
+      <div class="turn-counter">
+        <div class="turn-label">Turn</div>
+        <div class="turn-btn" onclick="changeTurn(-1)">−</div>
+        <div class="turn-number" id="turn-display">1</div>
+        <div class="turn-btn" onclick="changeTurn(1)">+</div>
       </div>
     </div>
 
@@ -690,7 +687,18 @@
       </div>
     </div>
 
-
+    <!-- END GAME -->
+    <div id="end-game-confirm" style="display:none;background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.3);border-radius:14px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">End this game?</div>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">You can go back if you tapped by accident.</div>
+      <div class="flex-row">
+        <button class="btn btn-ghost" onclick="document.getElementById('end-game-confirm').style.display='none'">↩ Go Back</button>
+        <button class="btn btn-danger" onclick="confirmEndGame()">✓ End Game</button>
+      </div>
+    </div>
+    <div class="flex-row" style="margin-bottom:24px">
+      <button class="btn btn-ghost" onclick="endGame()">⏹ End Game</button>
+    </div>
 
   </div>
 
@@ -727,7 +735,7 @@ const PLAYER_ID_TO_NAME = {
 const ACTION_KEYWORDS = {
   'Combat Damage': ['deals','deal','hit','hits','attacks','attacked','damage','damages','swings','swung','strikes','struck'],
   'Heal': ['heal','heals','healed','gains','gained','life','recover','recovers'],
-  'Self Damage': ['self damage','hurts himself','hurts herself','hurts themselves','pays life','paid life','loses life','lost life'],
+  'Self Damage': ['self damage','self-damage','himself','herself','themselves','pays life','paid life','loses life','lost life','self','took damage','takes damage'],
   'Commander Cast': ['cast commander','casts commander','commander cast','commander out','plays commander'],
   'Board Wipe?': ['board wipe','wipe','wraths','wrath','sweeper','sweeps','clears the board','destroys everything','destroys all'],
   'Player Kill': ['kills','kill','killed','eliminates','eliminated','knocks out','knocked out','takes out','took out','defeats','defeated'],
@@ -1216,13 +1224,15 @@ async function logActions() {
 
 function buildRow(actorId, actionType, targetId, amount, turn) {
   const actionId = generateId();
+  // Self damage is always logged as negative
+  const finalAmount = actionType === 'Self Damage' ? -Math.abs(amount) : amount;
   return [
     actionId,
     state.gameId,
     actorId,
     actionType,
     targetId || '',
-    amount,
+    finalAmount,
     turn
   ];
 }
@@ -1394,7 +1404,7 @@ function parseVoiceInput(transcript) {
     parsed.targets = [parsed.actor];
   }
 
-  // Apply parsed results
+  // Apply parsed results — order matters: actor first, then action (which may auto-target), then override targets if needed
   if (parsed.actor) {
     const actorBtn = document.querySelector(`#actor-grid .player-btn[data-player-name="${parsed.actor.name}"]`);
     if (actorBtn) selectActor(actorBtn);
@@ -1402,14 +1412,13 @@ function parseVoiceInput(transcript) {
 
   if (parsed.action) {
     const actionBtn = document.querySelector(`.action-btn[data-action="${parsed.action}"]`);
-    if (actionBtn) selectAction(actionBtn);
+    if (actionBtn) selectAction(actionBtn); // this auto-targets self for Heal/Self Damage
   }
 
-  if (parsed.targets.length > 0) {
-    // Clear current targets first
+  // Only override targets if we found explicit targets from voice AND it's not self damage
+  if (parsed.targets.length > 0 && parsed.action !== 'Self Damage') {
     state.targets = [];
     document.querySelectorAll('#target-grid .player-btn').forEach(b => b.classList.remove('selected-target'));
-    
     parsed.targets.forEach(target => {
       const targetBtn = document.querySelector(`#target-grid .player-btn[data-player-name="${target.name}"]`);
       if (targetBtn) toggleTarget(targetBtn);
