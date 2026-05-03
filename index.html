@@ -1305,9 +1305,12 @@ function toggleVoice() {
   state.recognition.onresult = (event) => {
     const transcript = Array.from(event.results)
       .map(r => r[0].transcript).join('');
-    document.getElementById('voice-transcript').textContent = transcript;
-    
-    if (event.results[event.results.length - 1].isFinal) {
+    const isFinal = event.results[event.results.length - 1].isFinal;
+    // Only update transcript display for interim results
+    // parseVoiceInput will handle the final display
+    if (!isFinal) {
+      document.getElementById('voice-transcript').textContent = transcript;
+    } else {
       parseVoiceInput(transcript);
     }
   };
@@ -1331,7 +1334,7 @@ function toggleVoice() {
 // =================== VOICE PARSER ===================
 function parseVoiceInput(transcript) {
   const text = transcript.toLowerCase().trim();
-  document.getElementById('voice-transcript').textContent = transcript;
+  document.getElementById('voice-transcript').textContent = '"' + transcript + '"';
 
   let parsed = {
     actor: null,
@@ -1351,21 +1354,14 @@ function parseVoiceInput(transcript) {
   // Pad text with spaces so word boundary checks work on first/last words
   const paddedText = ' ' + text + ' ';
 
-  // DEBUG — show what we're matching against
-  let debugLog = 'TEXT: ' + paddedText + '\n';
-
   // Find action type — check longer phrases first within each action
   for (const [action, keywords] of Object.entries(ACTION_KEYWORDS)) {
     const sorted = [...keywords].sort((a, b) => b.length - a.length);
-    const matched = sorted.find(kw => paddedText.includes(kw));
-    if (matched) {
-      debugLog += 'MATCHED: ' + action + ' via "' + matched + '"';
+    if (sorted.some(kw => paddedText.includes(kw))) {
       parsed.action = action;
       break;
     }
   }
-  if (!parsed.action) debugLog += 'NO ACTION MATCHED';
-  document.getElementById('voice-transcript').textContent = debugLog;
 
   // Strip out directional "to" before player names so it doesn't get parsed as number 2
   // e.g. "deals 5 to Walter" — remove " to [playername]" patterns first
