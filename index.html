@@ -924,7 +924,8 @@ function showGame() {
 async function fetchGameLogRows() {
   const response = await gapi.client.sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${GAME_LOG_SHEET}!A:N`
+    range: `${GAME_LOG_SHEET}!A:N`,
+    valueRenderOption: 'FORMATTED_VALUE'
   });
   return response.result.values || [];
 }
@@ -942,9 +943,13 @@ function parsePlayersFromRow(gameRow) {
 
 function formatGameDate(excelDate) {
   if (!excelDate) return '?';
+  // If it's already a readable date string, return it
+  if (typeof excelDate === 'string' && excelDate.includes('/')) return excelDate;
   const num = parseFloat(excelDate);
-  if (isNaN(num)) return excelDate;
-  // Excel epoch is Dec 30 1899
+  if (isNaN(num)) return String(excelDate);
+  // Small numbers (< 10000) are probably just years or garbage — return as-is
+  if (num < 10000) return String(excelDate);
+  // Large numbers are Excel date serials (days since Dec 30 1899)
   const date = new Date(Date.UTC(1899, 11, 30) + num * 86400 * 1000);
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 }
