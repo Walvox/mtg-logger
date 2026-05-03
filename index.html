@@ -1348,11 +1348,13 @@ function parseVoiceInput(transcript) {
     }
   }
 
+  // Pad text with spaces so word boundary checks work on first/last words
+  const paddedText = ' ' + text + ' ';
+
   // Find action type — check longer phrases first within each action
   for (const [action, keywords] of Object.entries(ACTION_KEYWORDS)) {
-    // Sort keywords by length descending so longer/more specific phrases match first
     const sorted = [...keywords].sort((a, b) => b.length - a.length);
-    if (sorted.some(kw => text.includes(kw))) {
+    if (sorted.some(kw => paddedText.includes(kw))) {
       parsed.action = action;
       break;
     }
