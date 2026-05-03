@@ -579,12 +579,27 @@
   <div id="setup-screen">
     <div class="card">
       <div class="card-title">🎮 Game Setup</div>
-      <div class="input-row">
-        <label>Game ID <span style="color:var(--text-dimmer);font-size:11px">(from AppSheet)</span></label>
-        <input type="text" id="game-id-input" placeholder="e.g. 5ac5b9c3" />
+
+      <!-- Latest game preview -->
+      <div id="latest-game-preview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+        <div style="font-size:11px;color:var(--text-dimmer);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Latest Game Found</div>
+        <div id="latest-game-info" style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:4px">—</div>
+        <div id="latest-game-players" style="font-size:13px;color:var(--text-dim)">—</div>
       </div>
-      <button class="btn btn-primary" onclick="loadGame()" id="load-btn">
-        ⚡ Load Game
+
+      <button class="btn btn-primary" onclick="loadLatestGame()" id="load-latest-btn">
+        ⚡ Load Latest Game
+      </button>
+
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0">
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+        <div style="font-size:11px;color:var(--text-dimmer);letter-spacing:1px">OR PICK A GAME</div>
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+      </div>
+
+      <div id="all-games-list" style="display:none;max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+      <button class="btn btn-ghost" onclick="toggleGamesList()" id="show-all-btn" style="width:100%">
+        📋 Show All Recent Games
       </button>
     </div>
   </div>
@@ -598,11 +613,14 @@
         <div class="game-id-badge" id="active-game-id">—</div>
         <div class="players-summary" id="players-summary"></div>
       </div>
-      <div class="turn-counter">
-        <div class="turn-label">Turn</div>
-        <div class="turn-btn" onclick="changeTurn(-1)">−</div>
-        <div class="turn-number" id="turn-display">1</div>
-        <div class="turn-btn" onclick="changeTurn(1)">+</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="turn-counter">
+          <div class="turn-label">Turn</div>
+          <div class="turn-btn" onclick="changeTurn(-1)">−</div>
+          <div class="turn-number" id="turn-display">1</div>
+          <div class="turn-btn" onclick="changeTurn(1)">+</div>
+        </div>
+        <button class="btn btn-danger" onclick="endGame()" style="padding:8px 14px;font-size:13px;white-space:nowrap;">⏹ End Game</button>
       </div>
     </div>
 
@@ -676,10 +694,7 @@
       </div>
     </div>
 
-    <!-- END GAME -->
-    <div class="flex-row" style="margin-bottom:24px">
-      <button class="btn btn-ghost" onclick="endGame()">← New Game</button>
-    </div>
+
 
   </div>
 
@@ -836,65 +851,137 @@ function showGame() {
 }
 
 // =================== LOAD GAME ===================
+// =================== GAME LOADING ===================
+async function fetchGameLogRows() {
+  const response = await gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${GAME_LOG_SHEET}!A:N`
+  });
+  return response.result.values || [];
+}
+
+function parsePlayersFromRow(gameRow) {
+  const playerColumns = [
+    { name: 'James', col: 5 }, { name: 'Walter', col: 6 }, { name: 'Ezra', col: 7 },
+    { name: 'Nate', col: 8 }, { name: 'Justine', col: 9 }, { name: 'Victor', col: 10 },
+    { name: 'Josh', col: 11 }, { name: 'Kingston', col: 12 }, { name: 'Bianca', col: 13 }
+  ];
+  return playerColumns
+    .filter(p => gameRow[p.col] && gameRow[p.col].trim() !== '')
+    .map(p => ({ id: PLAYER_MAP[p.name.toLowerCase()], name: p.name }));
+}
+
+function formatGameDate(excelDate) {
+  // Excel date serial to JS date
+  if (!excelDate) return '?';
+  const num = parseFloat(excelDate);
+  if (isNaN(num)) return excelDate;
+  const date = new Date((num - 25569) * 86400 * 1000);
+  return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+}
+
+async function loadLatestGame() {
+  if (!state.accessToken) { showToast('Connect to Google Sheets first', 'error'); return; }
+  const btn = document.getElementById('load-latest-btn');
+  btn.textContent = 'Finding latest game...';
+  btn.disabled = true;
+
+  try {
+    const rows = await fetchGameLogRows();
+    // Skip header, get last real row
+    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '');
+    if (dataRows.length === 0) { showToast('No games found in sheet', 'error'); btn.textContent = '⚡ Load Latest Game'; btn.disabled = false; return; }
+
+    // Sort by date desc then game# desc — last row is usually newest
+    const latest = dataRows[dataRows.length - 1];
+    const players = parsePlayersFromRow(latest);
+    const dateStr = formatGameDate(latest[0]);
+    const gameNum = latest[1] || '?';
+    const gameId = latest[2].toLowerCase();
+
+    // Show preview
+    document.getElementById('latest-game-preview').style.display = 'block';
+    document.getElementById('latest-game-info').textContent = `${dateStr} · Game ${gameNum} · ID: ${gameId}`;
+    document.getElementById('latest-game-players').textContent = players.map(p => p.name).join(', ') || 'No players found';
+
+    btn.textContent = '✓ Load This Game';
+    btn.onclick = () => loadGameById(gameId, players);
+    btn.disabled = false;
+
+  } catch (err) {
+    console.error(err);
+    showToast('Error reading sheet', 'error');
+    btn.textContent = '⚡ Load Latest Game';
+    btn.disabled = false;
+  }
+}
+
+async function toggleGamesList() {
+  const list = document.getElementById('all-games-list');
+  const btn = document.getElementById('show-all-btn');
+
+  if (list.style.display !== 'none') {
+    list.style.display = 'none';
+    btn.textContent = '📋 Show All Recent Games';
+    return;
+  }
+
+  btn.textContent = 'Loading...';
+
+  try {
+    const rows = await fetchGameLogRows();
+    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '').reverse().slice(0, 20);
+
+    list.innerHTML = dataRows.map(row => {
+      const players = parsePlayersFromRow(row);
+      const dateStr = formatGameDate(row[0]);
+      const gameId = row[2].toLowerCase();
+      return `
+        <div onclick="loadGameById('${gameId}', ${JSON.stringify(players).replace(/"/g, '&quot;')})"
+          style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;"
+          onmouseenter="this.style.background='var(--surface3)'" onmouseleave="this.style.background=''">
+          <div style="font-size:14px;font-weight:600;color:var(--text)">${dateStr} · Game ${row[1] || '?'}</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${players.map(p=>p.name).join(', ') || '—'}</div>
+          <div style="font-size:10px;color:var(--text-dimmer);margin-top:2px;font-family:monospace">${gameId}</div>
+        </div>`;
+    }).join('');
+
+    list.style.display = 'block';
+    btn.textContent = '▲ Hide Games List';
+  } catch(err) {
+    showToast('Error loading games', 'error');
+    btn.textContent = '📋 Show All Recent Games';
+  }
+}
+
+function loadGameById(gameId, players) {
+  if (!players || players.length === 0) { showToast('No players found for this game', 'error'); return; }
+  state.gameId = gameId;
+  state.turn = 1;
+  state.sessionLog = [];
+  state.players = players;
+  setupGameScreen();
+  showGame();
+  showToast(`Game loaded — ${players.length} players`, 'success');
+}
+
 async function loadGame() {
-  const gameId = document.getElementById('game-id-input').value.trim().toLowerCase();
+  const gameId = document.getElementById('game-id-input') ? document.getElementById('game-id-input').value.trim().toLowerCase() : '';
   if (!gameId) { showToast('Enter a Game ID', 'error'); return; }
   if (!state.accessToken) { showToast('Connect to Google Sheets first', 'error'); return; }
 
-  document.getElementById('load-btn').textContent = 'Loading...';
+  document.getElementById('load-btn') && (document.getElementById('load-btn').textContent = 'Loading...');
 
   try {
-    // Read Game Log to find players in this game
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${GAME_LOG_SHEET}!A:N`
-    });
-
-    const rows = response.result.values || [];
-    const headers = rows[0];
-    
-    // Find game row
+    const rows = await fetchGameLogRows();
     const gameRow = rows.find(r => r[2] && r[2].toLowerCase() === gameId);
-    
-    if (!gameRow) {
-      showToast('Game ID not found. Check AppSheet.', 'error');
-      document.getElementById('load-btn').textContent = '⚡ Load Game';
-      return;
-    }
-
-    // The Game Log columns: Date, Game#, Game ID, Winner, First Blood, James, Walter, Ezra, Nate, Justine, Victor, Josh, Kingston, Bianca
-    // Players are in columns 5-13 (index 5+)
-    const playerColumns = [
-      { name: 'James', col: 5 }, { name: 'Walter', col: 6 }, { name: 'Ezra', col: 7 },
-      { name: 'Nate', col: 8 }, { name: 'Justine', col: 9 }, { name: 'Victor', col: 10 },
-      { name: 'Josh', col: 11 }, { name: 'Kingston', col: 12 }, { name: 'Bianca', col: 13 }
-    ];
-
-    state.players = [];
-    playerColumns.forEach(p => {
-      if (gameRow[p.col] && gameRow[p.col].trim() !== '') {
-        state.players.push({ id: PLAYER_MAP[p.name.toLowerCase()], name: p.name });
-      }
-    });
-
-    if (state.players.length === 0) {
-      showToast('No players found for this game', 'error');
-      document.getElementById('load-btn').textContent = '⚡ Load Game';
-      return;
-    }
-
-    state.gameId = gameId;
-    state.turn = 1;
-    state.sessionLog = [];
-    
-    setupGameScreen();
-    showGame();
-    showToast(`Game loaded — ${state.players.length} players`, 'success');
+    if (!gameRow) { showToast('Game ID not found', 'error'); return; }
+    const players = parsePlayersFromRow(gameRow);
+    loadGameById(gameId, players);
 
   } catch (err) {
     console.error(err);
     showToast('Error loading game. Check connection.', 'error');
-    document.getElementById('load-btn').textContent = '⚡ Load Game';
   }
 }
 
@@ -936,6 +1023,15 @@ function selectActor(btn) {
   document.querySelectorAll('#actor-grid .player-btn').forEach(b => b.classList.remove('selected-actor'));
   btn.classList.add('selected-actor');
   state.actor = { id: parseInt(btn.dataset.playerId), name: btn.dataset.playerName };
+
+  // If Heal or Self Damage already selected, auto-target self
+  if (state.action === 'Heal' || state.action === 'Self Damage') {
+    state.targets = [];
+    document.querySelectorAll('#target-grid .player-btn').forEach(b => b.classList.remove('selected-target'));
+    const targetBtn = document.querySelector(`#target-grid .player-btn[data-player-name="${state.actor.name}"]`);
+    if (targetBtn) toggleTarget(targetBtn);
+  }
+
   updatePreview();
   updateLogBtn();
 }
@@ -944,6 +1040,17 @@ function selectAction(btn) {
   document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   state.action = btn.dataset.action;
+
+  // Auto-select actor as target for Heal and Self Damage
+  if ((state.action === 'Heal' || state.action === 'Self Damage') && state.actor) {
+    // Clear current targets first
+    state.targets = [];
+    document.querySelectorAll('#target-grid .player-btn').forEach(b => b.classList.remove('selected-target'));
+    // Select actor as target
+    const targetBtn = document.querySelector(`#target-grid .player-btn[data-player-name="${state.actor.name}"]`);
+    if (targetBtn) toggleTarget(targetBtn);
+  }
+
   updatePreview();
   updateLogBtn();
 }
@@ -1261,7 +1368,12 @@ function parseVoiceInput(transcript) {
   const targetsEveryone = everyoneKeywords.some(kw => text.includes(kw));
 
   if (targetsEveryone && parsed.actor) {
-    parsed.targets = state.players.filter(p => p.id !== parsed.actor.id);
+    // Heal affects everyone including self, damage affects everyone else
+    if (parsed.action === 'Heal') {
+      parsed.targets = [...state.players];
+    } else {
+      parsed.targets = state.players.filter(p => p.id !== parsed.actor.id);
+    }
   } else {
     // Find targets — all player names mentioned after first one
     // Also check shorthands
@@ -1329,12 +1441,42 @@ function showToast(msg, type = '') {
 }
 
 function endGame() {
+  // Show confirmation instead of immediately ending
+  const confirmed = document.getElementById('end-game-confirm');
+  confirmed.style.display = confirmed.style.display === 'none' ? 'block' : 'none';
+}
+
+function confirmEndGame() {
+  // Save last game state in case they want to go back
+  state.lastGame = {
+    gameId: state.gameId,
+    players: [...state.players],
+    turn: state.turn,
+    sessionLog: [...state.sessionLog]
+  };
   state.gameId = null;
   state.players = [];
   state.sessionLog = [];
-  document.getElementById('game-id-input').value = '';
-  document.getElementById('load-btn').textContent = '⚡ Load Game';
+  document.getElementById('end-game-confirm').style.display = 'none';
+  // Reset load button
+  const btn = document.getElementById('load-latest-btn');
+  if (btn) { btn.textContent = '⚡ Load Latest Game'; btn.onclick = loadLatestGame; btn.disabled = false; }
+  document.getElementById('latest-game-preview').style.display = 'none';
+  document.getElementById('all-games-list').style.display = 'none';
+  document.getElementById('show-all-btn').textContent = '📋 Show All Recent Games';
   showSetup();
+}
+
+function resumeLastGame() {
+  if (!state.lastGame) return;
+  state.gameId = state.lastGame.gameId;
+  state.players = state.lastGame.players;
+  state.turn = state.lastGame.turn;
+  state.sessionLog = state.lastGame.sessionLog;
+  document.getElementById('end-game-confirm').style.display = 'none';
+  setupGameScreen();
+  showGame();
+  showToast('Resumed game', 'success');
 }
 </script>
 </body>
