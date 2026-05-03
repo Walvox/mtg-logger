@@ -1374,7 +1374,7 @@ function parseVoiceInput(transcript) {
 
   // Find number(s) — extract all numbers
   const numbers = textForNumbers.match(/\b(\d+|one|two|too|three|four|for|five|six|seven|eight|ate|nine|ten|eleven|twelve|fifteen|twenty)\b/g) || [];
-  const wordToNum = {one:1,two:2,too:2,three:3,four:4,for:4,five:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20};
+  const wordToNum = {one:1,two:2,too:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20};
   const numValues = numbers.map(n => isNaN(n) ? (wordToNum[n] || 1) : parseInt(n));
   parsed.amount = numValues[0] || 1;
 
