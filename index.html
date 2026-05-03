@@ -774,9 +774,18 @@ function checkSavedToken() {
   const expiry = sessionStorage.getItem('mtg_token_expiry');
   if (token && expiry && Date.now() < parseInt(expiry)) {
     state.accessToken = token;
-    gapi.client.setToken({ access_token: token });
-    setConnected(true);
-    showSetup();
+    // Wait for gapi to be ready before setting token
+    const trySetToken = (attempts) => {
+      if (attempts <= 0) { showSetup(); return; }
+      if (typeof gapi !== 'undefined' && gapi.client) {
+        gapi.client.setToken({ access_token: token });
+        setConnected(true);
+        showSetup();
+      } else {
+        setTimeout(() => trySetToken(attempts - 1), 300);
+      }
+    };
+    trySetToken(10);
   } else {
     showSetup();
   }
@@ -812,9 +821,7 @@ function initGoogleAuth() {
 
 function setConnected(val) {
   document.getElementById('status-dot').className = 'status-dot' + (val ? ' connected' : '');
-  if (val) {
-    document.getElementById('auth-section').style.display = 'none';
-  }
+  document.getElementById('auth-section').style.display = val ? 'none' : 'block';
 }
 
 // =================== SCREENS ===================
