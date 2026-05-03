@@ -695,10 +695,17 @@ const ACTION_LOG_SHEET = 'Action Log';
 const GAME_LOG_SHEET = 'Game Log';
 const PLAYER_STATS_SHEET = 'Player Stats';
 
-// Player ID mapping (from your sheet)
+// Player ID mapping (from your sheet) — includes voice shorthands
 const PLAYER_MAP = {
-  'ezra': 1, 'james': 2, 'josh': 3, 'justine': 4,
-  'kingston': 5, 'nate': 6, 'victor': 7, 'walter': 8, 'bianca': 9
+  'ezra': 1, 'ez': 1,
+  'james': 2,
+  'josh': 3,
+  'justine': 4,
+  'kingston': 5,
+  'nate': 6,
+  'victor': 7,
+  'walter': 8, 'walt': 8,
+  'bianca': 9
 };
 const PLAYER_ID_TO_NAME = {
   1:'Ezra', 2:'James', 3:'Josh', 4:'Justine',
@@ -1242,12 +1249,26 @@ function parseVoiceInput(transcript) {
   const numValues = numbers.map(n => isNaN(n) ? (wordToNum[n] || 1) : parseInt(n));
   parsed.amount = numValues[0] || 1;
 
-  // Find targets — all player names mentioned after first one
-  let foundFirst = false;
-  for (const player of state.players) {
-    if (text.includes(player.name.toLowerCase())) {
-      if (!foundFirst) { foundFirst = true; continue; } // skip actor
-      parsed.targets.push(player);
+  // Check for "everyone" / "all" / "everybody" / "each player" — target all except actor
+  const everyoneKeywords = ['everyone', 'everybody', 'all players', 'each player', 'all opponents', 'the table'];
+  const targetsEveryone = everyoneKeywords.some(kw => text.includes(kw));
+
+  if (targetsEveryone && parsed.actor) {
+    parsed.targets = state.players.filter(p => p.id !== parsed.actor.id);
+  } else {
+    // Find targets — all player names mentioned after first one
+    // Also check shorthands
+    const shorthandMap = { 'ez': 'Ezra', 'walt': 'Walter' };
+    let foundFirst = false;
+    for (const player of state.players) {
+      const playerName = player.name.toLowerCase();
+      // Check full name and any shorthand
+      const shorthand = Object.entries(shorthandMap).find(([k,v]) => v === player.name)?.[0];
+      const nameFound = text.includes(playerName) || (shorthand && text.includes(shorthand));
+      if (nameFound) {
+        if (!foundFirst) { foundFirst = true; continue; } // skip actor
+        parsed.targets.push(player);
+      }
     }
   }
 
