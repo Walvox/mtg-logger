@@ -1262,15 +1262,16 @@ function renderSessionLog() {
     'Mana Flood?': '#40c4ff'
   };
 
-  container.innerHTML = state.sessionLog.slice(0, 30).map(entry => {
+  container.innerHTML = state.sessionLog.slice(0, 30).map((entry, idx) => {
     const color = actionColors[entry.action] || '#888';
     const targetStr = entry.target ? ` → ${entry.target}` : '';
-    const amountStr = entry.amount ? ` [${entry.amount}]` : '';
+    const amountStr = entry.amount !== undefined && entry.amount !== '' ? ` [${entry.amount}]` : '';
     return `
-      <div class="log-entry">
+      <div class="log-entry" onclick="editEntry(${idx})" style="cursor:pointer;" title="Tap to edit">
         <div class="log-turn">T${entry.turn}</div>
         <div class="log-desc">${entry.actor}${targetStr}${amountStr}</div>
         <div class="log-type" style="background:${color}22;border:1px solid ${color}44;color:${color}">${entry.action.replace('?','').trim()}</div>
+        <div style="font-size:11px;color:var(--text-dimmer);padding-left:4px">✏️</div>
       </div>
     `;
   }).join('');
@@ -1452,6 +1453,129 @@ function showToast(msg, type = '') {
   t.textContent = msg;
   t.className = 'toast show' + (type ? ' ' + type : '');
   setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+// =================== EDIT ENTRY ===================
+let editingIndex = null;
+
+function editEntry(idx) {
+  const entry = state.sessionLog[idx];
+  if (!entry) return;
+  editingIndex = idx;
+
+  // Pre-fill actor
+  const actorBtn = document.querySelector(`#actor-grid .player-btn[data-player-name="${entry.actor}"]`);
+  if (actorBtn) selectActor(actorBtn);
+
+  // Pre-fill action
+  const actionBtn = document.querySelector(`.action-btn[data-action="${entry.action}"]`);
+  if (actionBtn) selectAction(actionBtn);
+
+  // Pre-fill target(s)
+  if (entry.target && entry.action !== 'Self Damage') {
+    state.targets = [];
+    document.querySelectorAll('#target-grid .player-btn').forEach(b => b.classList.remove('selected-target'));
+    const targetBtn = document.querySelector(`#target-grid .player-btn[data-player-name="${entry.target}"]`);
+    if (targetBtn) toggleTarget(targetBtn);
+  }
+
+  // Pre-fill amount (show absolute value, buildRow handles negative)
+  document.getElementById('amount-input').value = Math.abs(entry.amount) || 0;
+  state.amount = Math.abs(entry.amount) || 0;
+
+  // Pre-fill turn
+  state.turn = entry.turn;
+  document.getElementById('turn-display').textContent = entry.turn;
+
+  // Update log button to show edit mode
+  const logBtn = document.getElementById('log-btn');
+  logBtn.textContent = '✦ SAVE EDIT ✦';
+  logBtn.style.background = 'linear-gradient(135deg, #ff6d00, #ff4444)';
+  logBtn.onclick = saveEdit;
+  logBtn.disabled = false;
+
+  // Add cancel edit button
+  let cancelBtn = document.getElementById('cancel-edit-btn');
+  if (!cancelBtn) {
+    cancelBtn = document.createElement('button');
+    cancelBtn.id = 'cancel-edit-btn';
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.style.width = '100%';
+    cancelBtn.style.marginBottom = '8px';
+    cancelBtn.onclick = cancelEdit;
+    logBtn.parentNode.insertBefore(cancelBtn, logBtn);
+  }
+  cancelBtn.textContent = '✕ Cancel Edit';
+  cancelBtn.style.display = 'block';
+
+  // Scroll to form
+  document.querySelector('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  showToast('Editing entry — make changes and tap Save Edit', '');
+  updatePreview();
+}
+
+async function saveEdit() {
+  if (editingIndex === null) return;
+  const entry = state.sessionLog[editingIndex];
+  state.amount = parseInt(document.getElementById('amount-input').value) || 0;
+
+  // Build the updated row
+  const updatedRow = buildRow(state.actor.id, state.action, state.targets[0]?.id || '', state.amount, state.turn);
+  // Keep the original action ID
+  updatedRow[0] = entry.id;
+
+  try {
+    // Find the row in the sheet by Action ID and update it
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!A:G`
+    });
+    const rows = response.result.values || [];
+    const rowIndex = rows.findIndex(r => r[0] === entry.id);
+
+    if (rowIndex < 0) {
+      showToast('Could not find entry in sheet', 'error');
+      cancelEdit();
+      return;
+    }
+
+    // Update the row (rowIndex + 1 for 1-based sheet indexing)
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!A${rowIndex + 1}:G${rowIndex + 1}`,
+      valueInputOption: 'RAW',
+      resource: { values: [updatedRow] }
+    });
+
+    // Update session log
+    state.sessionLog[editingIndex] = {
+      turn: updatedRow[6],
+      actor: PLAYER_ID_TO_NAME[updatedRow[2]] || updatedRow[2],
+      action: updatedRow[3],
+      target: updatedRow[4] ? PLAYER_ID_TO_NAME[updatedRow[4]] : null,
+      amount: updatedRow[5],
+      id: updatedRow[0]
+    };
+
+    renderSessionLog();
+    showToast('Entry updated ✓', 'success');
+    cancelEdit();
+
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to update entry', 'error');
+  }
+}
+
+function cancelEdit() {
+  editingIndex = null;
+  const logBtn = document.getElementById('log-btn');
+  logBtn.textContent = '✦ LOG ACTION ✦';
+  logBtn.style.background = '';
+  logBtn.onclick = logActions;
+  const cancelBtn = document.getElementById('cancel-edit-btn');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  updateLogBtn();
 }
 
 function endGame() {
