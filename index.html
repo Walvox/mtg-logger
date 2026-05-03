@@ -506,6 +506,53 @@
   }
   .target-tag span { font-size: 11px; color: var(--orange); }
 
+  /* MODAL */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .modal-overlay.visible {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 400px;
+    transform: translateY(20px);
+    transition: transform 0.2s ease;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-overlay.visible .modal {
+    transform: translateY(0);
+  }
+  .modal-title {
+    font-family: 'Cinzel', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .modal-body {
+    font-size: 14px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-bottom: 24px;
+  }
+
   /* Scrollbar */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: var(--surface); }
@@ -688,20 +735,24 @@
     </div>
 
     <!-- END GAME -->
-    <div id="end-game-confirm" style="display:none;background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.3);border-radius:14px;padding:16px;margin-bottom:12px;">
-      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">End this game?</div>
-      <div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">You can go back if you tapped by accident.</div>
-      <div class="flex-row">
-        <button class="btn btn-ghost" onclick="showEndGameBtn()">↩ Go Back</button>
-        <button class="btn btn-danger" onclick="confirmEndGame()">✓ End Game</button>
-      </div>
-    </div>
     <div class="flex-row" style="margin-bottom:24px">
       <button class="btn btn-ghost" id="end-game-btn" onclick="endGame()">⏹ End Game</button>
     </div>
 
   </div>
 
+</div>
+
+<!-- END GAME MODAL -->
+<div class="modal-overlay" id="end-game-modal">
+  <div class="modal">
+    <div class="modal-title">⏹ End This Game?</div>
+    <div class="modal-body">You'll be taken back to the game selection screen. Any logged actions are already saved to the sheet.</div>
+    <div class="flex-row">
+      <button class="btn btn-ghost" onclick="closeEndGameModal()">↩ Keep Playing</button>
+      <button class="btn btn-danger" onclick="confirmEndGame()">✓ End Game</button>
+    </div>
+  </div>
 </div>
 
 <!-- TOAST -->
@@ -768,13 +819,17 @@ window.onload = () => {
 
 // Intercept back button
 window.addEventListener('popstate', (event) => {
+  // If modal is open, close it first
+  const modal = document.getElementById('end-game-modal');
+  if (modal && modal.classList.contains('visible')) {
+    closeEndGameModal();
+    history.pushState({ screen: 'game' }, '');
+    return;
+  }
   if (document.getElementById('game-screen').classList.contains('active')) {
-    // If in game, back button shows end game confirmation
     endGame();
-    // Push state again so next back press works too
     history.pushState({ screen: 'game' }, '');
   } else if (document.getElementById('setup-screen').classList.contains('active')) {
-    // If on setup, push state again to prevent leaving app
     history.pushState({ screen: 'setup' }, '');
   }
 });
@@ -985,6 +1040,7 @@ async function loadGameById(gameId, players) {
     });
     const rows = response.result.values || [];
     const gameRows = rows.filter(r => r[1] && r[1].toLowerCase() === gameId.toLowerCase());
+    showToast(`ID: ${gameId} · Rows found: ${gameRows.length}`, '');
     if (gameRows.length > 0) {
       const turns = gameRows.map(r => parseInt(r[6]) || 0).filter(t => !isNaN(t));
       state.turn = turns.length > 0 ? Math.max(...turns) : 1;
@@ -1619,15 +1675,15 @@ function cancelEdit() {
 function showEndGameBtn() {
   const endBtn = document.getElementById('end-game-btn');
   if (endBtn) endBtn.style.display = 'block';
-  document.getElementById('end-game-confirm').style.display = 'none';
+  closeEndGameModal();
 }
 
 function endGame() {
-  const confirmed = document.getElementById('end-game-confirm');
-  const endBtn = document.getElementById('end-game-btn');
-  confirmed.style.display = 'block';
-  if (endBtn) endBtn.style.display = 'none';
-  confirmed.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('end-game-modal').classList.add('visible');
+}
+
+function closeEndGameModal() {
+  document.getElementById('end-game-modal').classList.remove('visible');
 }
 
 function confirmEndGame() {
@@ -1641,9 +1697,7 @@ function confirmEndGame() {
   state.gameId = null;
   state.players = [];
   state.sessionLog = [];
-  document.getElementById('end-game-confirm').style.display = 'none';
-  const endBtn = document.getElementById('end-game-btn');
-  if (endBtn) endBtn.style.display = 'block';
+  closeEndGameModal();
   // Reset load button
   const btn = document.getElementById('load-latest-btn');
   if (btn) { btn.textContent = '⚡ Load Latest Game'; btn.onclick = loadLatestGame; btn.disabled = false; }
@@ -1659,7 +1713,7 @@ function resumeLastGame() {
   state.players = state.lastGame.players;
   state.turn = state.lastGame.turn;
   state.sessionLog = state.lastGame.sessionLog;
-  document.getElementById('end-game-confirm').style.display = 'none';
+  closeEndGameModal();
   setupGameScreen();
   showGame();
   showToast('Resumed game', 'success');
