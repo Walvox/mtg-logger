@@ -1040,7 +1040,6 @@ async function loadGameById(gameId, players) {
     });
     const rows = response.result.values || [];
     const gameRows = rows.filter(r => r[1] && r[1].toLowerCase() === gameId.toLowerCase());
-    showToast(`ID: ${gameId} · Rows found: ${gameRows.length}`, '');
     if (gameRows.length > 0) {
       const turns = gameRows.map(r => parseInt(r[6]) || 0).filter(t => !isNaN(t));
       state.turn = turns.length > 0 ? Math.max(...turns) : 1;
@@ -1053,7 +1052,17 @@ async function loadGameById(gameId, players) {
 
   setupGameScreen();
   showGame();
-  showToast(`Game loaded — ${players.length} players · Turn ${state.turn}`, 'success');
+  // Show game ID from both sheets so we can compare
+  setTimeout(() => {
+    const actionLogIds = [];
+    gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!B2:B10`
+    }).then(r => {
+      const ids = (r.result.values || []).map(row => row[0]).filter(Boolean).slice(0,3);
+      showToast(`GameLog ID: "${gameId}" | ActionLog IDs: "${ids.join('","')}"`, '');
+    });
+  }, 500);
 }
 
 async function loadGame() {
