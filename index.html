@@ -692,12 +692,12 @@
       <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">End this game?</div>
       <div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">You can go back if you tapped by accident.</div>
       <div class="flex-row">
-        <button class="btn btn-ghost" onclick="document.getElementById('end-game-confirm').style.display='none'">↩ Go Back</button>
+        <button class="btn btn-ghost" onclick="showEndGameBtn()">↩ Go Back</button>
         <button class="btn btn-danger" onclick="confirmEndGame()">✓ End Game</button>
       </div>
     </div>
     <div class="flex-row" style="margin-bottom:24px">
-      <button class="btn btn-ghost" onclick="endGame()">⏹ End Game</button>
+      <button class="btn btn-ghost" id="end-game-btn" onclick="endGame()">⏹ End Game</button>
     </div>
 
   </div>
@@ -951,15 +951,33 @@ async function toggleGamesList() {
   }
 }
 
-function loadGameById(gameId, players) {
+async function loadGameById(gameId, players) {
   if (!players || players.length === 0) { showToast('No players found for this game', 'error'); return; }
   state.gameId = gameId;
-  state.turn = 1;
   state.sessionLog = [];
   state.players = players;
+
+  // Try to find the last used turn number for this game
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!A:G`
+    });
+    const rows = response.result.values || [];
+    const gameRows = rows.filter(r => r[1] && r[1].toLowerCase() === gameId.toLowerCase());
+    if (gameRows.length > 0) {
+      const turns = gameRows.map(r => parseInt(r[6]) || 0).filter(t => !isNaN(t));
+      state.turn = turns.length > 0 ? Math.max(...turns) : 1;
+    } else {
+      state.turn = 1;
+    }
+  } catch (err) {
+    state.turn = 1;
+  }
+
   setupGameScreen();
   showGame();
-  showToast(`Game loaded — ${players.length} players`, 'success');
+  showToast(`Game loaded — ${players.length} players · Turn ${state.turn}`, 'success');
 }
 
 async function loadGame() {
@@ -1578,9 +1596,17 @@ function cancelEdit() {
   updateLogBtn();
 }
 
+function showEndGameBtn() {
+  const endBtn = document.getElementById('end-game-btn');
+  if (endBtn) endBtn.style.display = 'block';
+  document.getElementById('end-game-confirm').style.display = 'none';
+}
+
 function endGame() {
   const confirmed = document.getElementById('end-game-confirm');
+  const endBtn = document.getElementById('end-game-btn');
   confirmed.style.display = 'block';
+  if (endBtn) endBtn.style.display = 'none';
   confirmed.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -1596,6 +1622,8 @@ function confirmEndGame() {
   state.players = [];
   state.sessionLog = [];
   document.getElementById('end-game-confirm').style.display = 'none';
+  const endBtn = document.getElementById('end-game-btn');
+  if (endBtn) endBtn.style.display = 'block';
   // Reset load button
   const btn = document.getElementById('load-latest-btn');
   if (btn) { btn.textContent = '⚡ Load Latest Game'; btn.onclick = loadLatestGame; btn.disabled = false; }
