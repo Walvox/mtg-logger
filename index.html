@@ -941,11 +941,11 @@ function parsePlayersFromRow(gameRow) {
 }
 
 function formatGameDate(excelDate) {
-  // Excel date serial to JS date
   if (!excelDate) return '?';
   const num = parseFloat(excelDate);
   if (isNaN(num)) return excelDate;
-  const date = new Date((num - 25569) * 86400 * 1000);
+  // Excel epoch is Dec 30 1899
+  const date = new Date(Date.UTC(1899, 11, 30) + num * 86400 * 1000);
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 }
 
@@ -1002,7 +1002,7 @@ async function toggleGamesList() {
 
   try {
     const rows = await fetchGameLogRows();
-    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '').reverse().slice(0, 20);
+    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '').sort((a, b) => parseFloat(b[0]) - parseFloat(a[0])).slice(0, 20);
 
     list.innerHTML = dataRows.map(row => {
       const players = parsePlayersFromRow(row);
@@ -1040,29 +1040,24 @@ async function loadGameById(gameId, players) {
     });
     const rows = response.result.values || [];
     const gameRows = rows.filter(r => r[1] && r[1].toLowerCase() === gameId.toLowerCase());
+    console.log('gameId:', gameId, '| total rows:', rows.length, '| matched rows:', gameRows.length);
     if (gameRows.length > 0) {
       const turns = gameRows.map(r => parseInt(r[6]) || 0).filter(t => !isNaN(t));
+      console.log('turns found:', turns, '| max:', Math.max(...turns));
       state.turn = turns.length > 0 ? Math.max(...turns) : 1;
     } else {
+      // Log a sample of what IS in the action log for comparison
+      console.log('No match. Sample Action Log game IDs:', rows.slice(1,5).map(r => r[1]));
       state.turn = 1;
     }
   } catch (err) {
+    console.error('Turn detection error:', err);
     state.turn = 1;
   }
 
   setupGameScreen();
   showGame();
-  // Show game ID from both sheets so we can compare
-  setTimeout(() => {
-    const actionLogIds = [];
-    gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!B2:B10`
-    }).then(r => {
-      const ids = (r.result.values || []).map(row => row[0]).filter(Boolean).slice(0,3);
-      showToast(`GameLog ID: "${gameId}" | ActionLog IDs: "${ids.join('","')}"`, '');
-    });
-  }, 500);
+  showToast(`Game loaded — ${players.length} players · Turn ${state.turn}`, 'success');
 }
 
 async function loadGame() {
