@@ -859,13 +859,14 @@ function checkSavedToken() {
   const expiry = sessionStorage.getItem('mtg_token_expiry');
   if (token && expiry && Date.now() < parseInt(expiry)) {
     state.accessToken = token;
-    // Wait for gapi to be ready before setting token
     const trySetToken = (attempts) => {
       if (attempts <= 0) { showSetup(); return; }
       if (typeof gapi !== 'undefined' && gapi.client) {
         gapi.client.setToken({ access_token: token });
         setConnected(true);
         showSetup();
+        // Start auto-refresh timer
+        scheduleTokenRefresh(parseInt(expiry));
       } else {
         setTimeout(() => trySetToken(attempts - 1), 300);
       }
@@ -873,6 +874,44 @@ function checkSavedToken() {
     trySetToken(10);
   } else {
     showSetup();
+  }
+}
+
+function scheduleTokenRefresh(expiry) {
+  // Refresh 5 minutes before expiry
+  const refreshIn = expiry - Date.now() - (5 * 60 * 1000);
+  if (refreshIn <= 0) {
+    silentTokenRefresh();
+    return;
+  }
+  setTimeout(() => silentTokenRefresh(), refreshIn);
+}
+
+function silentTokenRefresh() {
+  const clientId = '391153256248-h8iiji60b4vvur3nu5rk3t86p43k6j69.apps.googleusercontent.com';
+  try {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      prompt: '', // empty string = silent refresh, no popup
+      callback: (response) => {
+        if (response.error) {
+          console.warn('Silent token refresh failed:', response.error);
+          return;
+        }
+        state.accessToken = response.access_token;
+        const expiry = Date.now() + (response.expires_in * 1000);
+        sessionStorage.setItem('mtg_access_token', response.access_token);
+        sessionStorage.setItem('mtg_token_expiry', expiry.toString());
+        gapi.client.setToken({ access_token: response.access_token });
+        console.log('Token refreshed silently');
+        // Schedule next refresh
+        scheduleTokenRefresh(expiry);
+      }
+    });
+    client.requestAccessToken();
+  } catch(err) {
+    console.warn('Token refresh error:', err);
   }
 }
 
@@ -1066,6 +1105,12 @@ async function loadGameById(gameId, players) {
   } catch (err) {
     console.error('Turn detection error:', err);
     state.turn = 1;
+  }
+
+  // Restore session log if this game was previously active this session
+  const savedLog = sessionStorage.getItem('mtg_session_log_' + gameId);
+  if (savedLog) {
+    try { state.sessionLog = JSON.parse(savedLog); } catch(e) { state.sessionLog = []; }
   }
 
   setupGameScreen();
@@ -1354,6 +1399,11 @@ function generateId() {
 
 // =================== SESSION LOG ===================
 function renderSessionLog() {
+  // Persist session log so it survives token refresh
+  if (state.gameId) {
+    sessionStorage.setItem('mtg_session_log_' + state.gameId, JSON.stringify(state.sessionLog));
+    sessionStorage.setItem('mtg_active_game', state.gameId);
+  }
   const container = document.getElementById('log-entries');
   document.getElementById('log-count').textContent = state.sessionLog.length;
   
