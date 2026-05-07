@@ -1381,7 +1381,10 @@ async function logActions() {
 function buildRow(actorId, actionType, targetId, amount, turn) {
   const actionId = generateId();
   // Self damage is always logged as negative
-  const finalAmount = actionType === 'Self Damage' ? -Math.abs(amount) : amount;
+  // Some action types don't use an amount
+  const noAmountTypes = ['Player Kill', 'Board Wipe?', 'Mana Screwed?', 'Mana Flood?', 'Commander Cast'];
+  const finalAmount = noAmountTypes.includes(actionType) ? '' : 
+                      actionType === 'Self Damage' ? -Math.abs(amount) : amount;
   return [
     actionId,
     state.gameId,
@@ -1428,11 +1431,14 @@ function renderSessionLog() {
     const targetStr = entry.target ? ` → ${entry.target}` : '';
     const amountStr = entry.amount !== undefined && entry.amount !== '' ? ` [${entry.amount}]` : '';
     return `
-      <div class="log-entry" onclick="editEntry(${idx})" style="cursor:pointer;" title="Tap to edit">
+      <div class="log-entry">
         <div class="log-turn">T${entry.turn}</div>
-        <div class="log-desc">${entry.actor}${targetStr}${amountStr}</div>
+        <div class="log-desc" style="flex:1">${entry.actor}${targetStr}${amountStr}</div>
         <div class="log-type" style="background:${color}22;border:1px solid ${color}44;color:${color}">${entry.action.replace('?','').trim()}</div>
-        <div style="font-size:11px;color:var(--text-dimmer);padding-left:4px">✏️</div>
+        <div style="display:flex;gap:6px;padding-left:6px;flex-shrink:0">
+          <div onclick="editEntry(${idx})" style="cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;" title="Edit">✏️</div>
+          <div onclick="deleteEntry(${idx})" style="cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;" title="Delete">🗑️</div>
+        </div>
       </div>
     `;
   }).join('');
@@ -1614,6 +1620,46 @@ function showToast(msg, type = '') {
   t.textContent = msg;
   t.className = 'toast show' + (type ? ' ' + type : '');
   setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+// =================== DELETE ENTRY ===================
+async function deleteEntry(idx) {
+  const entry = state.sessionLog[idx];
+  if (!entry) return;
+
+  if (!confirm(`Delete: ${entry.actor} → ${entry.action}${entry.target ? ' → ' + entry.target : ''} [${entry.amount}]?`)) return;
+
+  try {
+    // Find the row in the sheet by Action ID
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!A:G`
+    });
+    const rows = response.result.values || [];
+    const rowIndex = rows.findIndex(r => r[0] === entry.id);
+
+    if (rowIndex < 0) {
+      showToast('Could not find entry in sheet', 'error');
+      return;
+    }
+
+    // Clear the row by overwriting with empty values
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ACTION_LOG_SHEET}!A${rowIndex + 1}:G${rowIndex + 1}`,
+      valueInputOption: 'RAW',
+      resource: { values: [['', '', '', '', '', '', '']] }
+    });
+
+    // Remove from session log
+    state.sessionLog.splice(idx, 1);
+    renderSessionLog();
+    showToast('Entry deleted ✓', 'success');
+
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to delete entry', 'error');
+  }
 }
 
 // =================== EDIT ENTRY ===================
