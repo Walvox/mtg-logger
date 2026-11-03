@@ -1089,9 +1089,21 @@ async function loadGameById(gameId, players) {
     const rows = (await api('getActionLog')).values || [];
     const gameRows = rows.filter(r => r[1] && r[1].toLowerCase() === gameId.toLowerCase());
     console.log('gameId:', gameId, '| total rows:', rows.length, '| matched rows:', gameRows.length);
-    if (gameRows.length > 0) {
-      const turns = gameRows.map(r => parseInt(r[6]) || 0).filter(t => !isNaN(t));
-      console.log('turns found:', turns, '| max:', Math.max(...turns));
+    // Rebuild the session log from the sheet (plus anything still waiting to sync), newest first
+    const pending = getQueue().filter(r => String(r[1]).toLowerCase() === gameId.toLowerCase());
+    const allRows = gameRows.concat(pending.map(r => r.map(String)));
+    state.sessionLog = allRows.map(r => ({
+      turn: parseInt(r[6]) || r[6],
+      actor: PLAYER_ID_TO_NAME[parseInt(r[2])] || r[2],
+      action: r[3],
+      target: r[4] ? (PLAYER_ID_TO_NAME[parseInt(r[4])] || r[4]) : null,
+      amount: r[5] === '' ? '' : (isNaN(Number(r[5])) ? r[5] : Number(r[5])),
+      id: r[0]
+    })).reverse();
+    state.logLoadedFromSheet = true;
+
+    if (allRows.length > 0) {
+      const turns = allRows.map(r => parseInt(r[6]) || 0).filter(t => !isNaN(t));
       state.turn = turns.length > 0 ? Math.max(...turns) : 1;
     } else {
       // Log a sample of what IS in the action log for comparison
@@ -1104,7 +1116,8 @@ async function loadGameById(gameId, players) {
   }
 
   // Restore session log if this game was previously active this session
-  const savedLog = safeGet('mtg_session_log_' + gameId);
+  const savedLog = state.logLoadedFromSheet ? null : safeGet('mtg_session_log_' + gameId);
+  state.logLoadedFromSheet = false;
   if (savedLog) {
     try { state.sessionLog = JSON.parse(savedLog); } catch(e) { state.sessionLog = []; }
   }
@@ -1427,7 +1440,7 @@ function renderSessionLog() {
     'Mana Flood?': '#40c4ff'
   };
 
-  container.innerHTML = state.sessionLog.slice(0, 30).map((entry, idx) => {
+  container.innerHTML = state.sessionLog.slice(0, 200).map((entry, idx) => {
     const color = actionColors[entry.action] || '#888';
     const targetStr = entry.target ? ` → ${entry.target}` : '';
     const amountStr = entry.amount !== undefined && entry.amount !== '' ? ` [${entry.amount}]` : '';
@@ -1715,7 +1728,10 @@ async function saveEdit() {
   state.amount = parseInt(document.getElementById('amount-input').value) || 0;
 
   // Build the updated row
-  const updatedRow = buildRow(state.actor.id, state.action, state.targets[0]?.id || '', state.amount, state.turn);
+  // Keep the original target if it couldn't be shown as a button (e.g. a player not in this game's list)
+  const fallbackTarget = (!state.targets.length && entry.target && !['Board Wipe?','Mana Screwed?','Mana Flood?','Commander Cast'].includes(state.action))
+    ? (PLAYER_MAP[String(entry.target).toLowerCase()] || entry.target) : '';
+  const updatedRow = buildRow(state.actor.id, state.action, state.targets[0]?.id || fallbackTarget, state.amount, state.turn);
   // Keep the original action ID
   updatedRow[0] = entry.id;
 
