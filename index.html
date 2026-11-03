@@ -614,12 +614,20 @@
 
   <!-- AUTH SECTION -->
   <div id="auth-section">
-    <div class="card-title">🔐 Google Sheets Connection</div>
+    <div class="card-title">🔐 Connect to MTG Game Log</div>
     <div class="auth-notice">
-      Click below to connect your Google account and access the MTG sheet.
+      One-time setup on this device. No Google login needed.
     </div>
-    <button class="btn btn-primary" onclick="initGoogleAuth()" id="auth-btn">
-      🔑 Connect to MTG Game Log
+    <div class="input-row" id="script-url-row">
+      <label>Logger link</label>
+      <input type="text" id="script-url-input" placeholder="https://script.google.com/macros/s/.../exec" />
+    </div>
+    <div class="input-row">
+      <label>Group password</label>
+      <input type="password" id="script-key-input" placeholder="Password" />
+    </div>
+    <button class="btn btn-primary" onclick="connectBackend()" id="auth-btn">
+      🔑 Connect
     </button>
   </div>
 
@@ -809,15 +817,17 @@ let state = {
   targets: [], // [{id, name, amount}]
   amount: 1,
   sessionLog: [],
-  accessToken: null,
-  clientId: null,
+  scriptUrl: null,
+  key: null,
+  connected: false,
   recognition: null,
   isListening: false
 };
 
 // =================== INIT ===================
 window.onload = () => {
-  loadGoogleAPI();
+  initBackend();
+  updatePendingBadge();
   // Push initial state so back button has somewhere to go
   history.pushState({ screen: 'setup' }, '');
 };
@@ -839,116 +849,103 @@ window.addEventListener('popstate', (event) => {
   }
 });
 
-function loadGoogleAPI() {
-  const script = document.createElement('script');
-  script.src = 'https://accounts.google.com/gsi/client';
-  script.onload = () => {
-    checkSavedToken();
-  };
-  document.head.appendChild(script);
+// =================== BACKEND CONNECTION ===================
+// Optional: paste your Apps Script web app URL here so people only need the password.
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyXIeo9gm5wmrJayTOio-zSYrRTTzGWytaSBHSYtLbVL6NSy0XrW2OhPGtRuhPskHVr/exec';
 
-  const gapiScript = document.createElement('script');
-  gapiScript.src = 'https://apis.google.com/js/api.js';
-  gapiScript.onload = () => {
-    gapi.load('client', () => {
-      gapi.client.init({
-        discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4']
-      });
-    });
-  };
-  document.head.appendChild(gapiScript);
-}
-
-function checkSavedToken() {
-  const token = sessionStorage.getItem('mtg_access_token');
-  const expiry = sessionStorage.getItem('mtg_token_expiry');
-  if (token && expiry && Date.now() < parseInt(expiry)) {
-    state.accessToken = token;
-    const trySetToken = (attempts) => {
-      if (attempts <= 0) { showSetup(); return; }
-      if (typeof gapi !== 'undefined' && gapi.client) {
-        gapi.client.setToken({ access_token: token });
-        setConnected(true);
-        showSetup();
-        // Start auto-refresh timer
-        scheduleTokenRefresh(parseInt(expiry));
-      } else {
-        setTimeout(() => trySetToken(attempts - 1), 300);
-      }
-    };
-    trySetToken(10);
-  } else {
-    showSetup();
+function initBackend() {
+  // Allow a share link like index.html#s=<url>&k=<password> to set things up in one tap
+  if (location.hash.length > 1) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (h.get('s')) safeSet('mtg_script_url', h.get('s'));
+    if (h.get('k')) safeSet('mtg_key', h.get('k'));
+    history.replaceState(history.state, '', location.pathname);
   }
-}
+  state.scriptUrl = SCRIPT_URL || safeGet('mtg_script_url');
+  state.key = safeGet('mtg_key');
+  if (SCRIPT_URL) document.getElementById('script-url-row').style.display = 'none';
+  if (state.scriptUrl) document.getElementById('script-url-input').value = state.scriptUrl;
 
-function scheduleTokenRefresh(expiry) {
-  // Refresh 5 minutes before expiry
-  const refreshIn = expiry - Date.now() - (5 * 60 * 1000);
-  if (refreshIn <= 0) {
-    silentTokenRefresh();
-    return;
+  if (state.scriptUrl && state.key) {
+    setConnected(true);
+    flushQueue();
   }
-  setTimeout(() => silentTokenRefresh(), refreshIn);
+  showSetup();
 }
 
-function silentTokenRefresh() {
-  const clientId = '391153256248-h8iiji60b4vvur3nu5rk3t86p43k6j69.apps.googleusercontent.com';
-  try {
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: 'https://www.googleapis.com/auth/spreadsheets',
-      prompt: '', // empty string = silent refresh, no popup
-      callback: (response) => {
-        if (response.error) {
-          console.warn('Silent token refresh failed:', response.error);
-          return;
-        }
-        state.accessToken = response.access_token;
-        const expiry = Date.now() + (response.expires_in * 1000);
-        sessionStorage.setItem('mtg_access_token', response.access_token);
-        sessionStorage.setItem('mtg_token_expiry', expiry.toString());
-        gapi.client.setToken({ access_token: response.access_token });
-        console.log('Token refreshed silently');
-        // Schedule next refresh
-        scheduleTokenRefresh(expiry);
-      }
-    });
-    client.requestAccessToken();
-  } catch(err) {
-    console.warn('Token refresh error:', err);
-  }
-}
+function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-// =================== AUTH ===================
-function initGoogleAuth() {
-  const clientId = '391153256248-h8iiji60b4vvur3nu5rk3t86p43k6j69.apps.googleusercontent.com';
-  state.clientId = clientId;
-
-  const client = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    callback: (response) => {
-      if (response.error) {
-        showToast('Auth failed: ' + response.error, 'error');
-        return;
-      }
-      state.accessToken = response.access_token;
-      const expiry = Date.now() + (response.expires_in * 1000);
-      sessionStorage.setItem('mtg_access_token', response.access_token);
-      sessionStorage.setItem('mtg_token_expiry', expiry.toString());
-      gapi.client.setToken({ access_token: response.access_token });
-      setConnected(true);
-      showToast('Connected to Google Sheets!', 'success');
-    }
+async function api(action, data = {}) {
+  const res = await fetch(state.scriptUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action, key: state.key }, data))
   });
-  client.requestAccessToken();
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Request failed');
+  return json;
+}
+
+async function connectBackend() {
+  const url = (SCRIPT_URL || document.getElementById('script-url-input').value).trim();
+  const key = document.getElementById('script-key-input').value;
+  if (!url || !key) { showToast('Enter the link and password', 'error'); return; }
+  state.scriptUrl = url;
+  state.key = key;
+  const btn = document.getElementById('auth-btn');
+  btn.textContent = 'Connecting...';
+  try {
+    await api('ping');
+    safeSet('mtg_script_url', url);
+    safeSet('mtg_key', key);
+    setConnected(true);
+    showToast('Connected to MTG Game Log!', 'success');
+  } catch (err) {
+    showToast(err.message === 'Wrong password' ? 'Wrong password' : 'Could not connect — check the link', 'error');
+  }
+  btn.textContent = '🔑 Connect';
 }
 
 function setConnected(val) {
+  state.connected = val;
   document.getElementById('status-dot').className = 'status-dot' + (val ? ' connected' : '');
   document.getElementById('auth-section').style.display = val ? 'none' : 'block';
 }
+
+// =================== OFFLINE QUEUE ===================
+// Actions that fail to send are kept on the device and retried automatically
+function getQueue() { try { return JSON.parse(safeGet('mtg_pending') || '[]'); } catch (e) { return []; } }
+function setQueue(q) { safeSet('mtg_pending', JSON.stringify(q)); updatePendingBadge(); }
+
+function updatePendingBadge() {
+  const q = getQueue();
+  const dot = document.getElementById('status-dot');
+  if (!dot) return;
+  dot.title = q.length ? `${q.length} action(s) waiting to sync` : '';
+  dot.style.background = q.length ? 'var(--gold)' : '';
+  dot.style.boxShadow = q.length ? '0 0 8px var(--gold)' : '';
+}
+
+let flushing = false;
+async function flushQueue() {
+  if (flushing || !state.connected) return;
+  const q = getQueue();
+  if (!q.length) { updatePendingBadge(); return; }
+  flushing = true;
+  try {
+    await api('append', { rows: q });
+    setQueue([]);
+    showToast(`${q.length} saved action${q.length > 1 ? 's' : ''} synced ✓`, 'success');
+  } catch (err) {
+    console.warn('Sync retry failed:', err);
+  }
+  flushing = false;
+}
+
+setInterval(flushQueue, 30000);
+window.addEventListener('online', flushQueue);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) flushQueue(); });
 
 // =================== SCREENS ===================
 function showSetup() {
@@ -966,12 +963,8 @@ function showGame() {
 // =================== LOAD GAME ===================
 // =================== GAME LOADING ===================
 async function fetchGameLogRows() {
-  const response = await gapi.client.sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${GAME_LOG_SHEET}!A:N`,
-    valueRenderOption: 'FORMATTED_VALUE'
-  });
-  return response.result.values || [];
+  const res = await api('getGameLog');
+  return res.values || [];
 }
 
 function parsePlayersFromRow(gameRow) {
@@ -998,8 +991,18 @@ function formatGameDate(excelDate) {
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 }
 
+function sortGamesNewestFirst(rows) {
+  return [...rows].sort((a, b) => {
+    const dateA = new Date(a[0]);
+    const dateB = new Date(b[0]);
+    const diff = (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
+    if (diff !== 0) return diff;
+    return parseFloat(b[1] || 0) - parseFloat(a[1] || 0);
+  });
+}
+
 async function loadLatestGame() {
-  if (!state.accessToken) { showToast('Connect to Google Sheets first', 'error'); return; }
+  if (!state.connected) { showToast('Connect first', 'error'); return; }
   const btn = document.getElementById('load-latest-btn');
   btn.textContent = 'Finding latest game...';
   btn.disabled = true;
@@ -1010,8 +1013,8 @@ async function loadLatestGame() {
     const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '');
     if (dataRows.length === 0) { showToast('No games found in sheet', 'error'); btn.textContent = '⚡ Load Latest Game'; btn.disabled = false; return; }
 
-    // Sort by date desc then game# desc — last row is usually newest
-    const latest = dataRows[dataRows.length - 1];
+    // Newest date first, then highest game number
+    const latest = sortGamesNewestFirst(dataRows)[0];
     const players = parsePlayersFromRow(latest);
     const dateStr = formatGameDate(latest[0]);
     const gameNum = latest[1] || '?';
@@ -1051,15 +1054,7 @@ async function toggleGamesList() {
 
   try {
     const rows = await fetchGameLogRows();
-    const dataRows = rows.slice(1).filter(r => r[2] && r[2].trim() !== '').sort((a, b) => {
-      // Parse date strings like "4/26/2026" into comparable values
-      const dateA = new Date(a[0]);
-      const dateB = new Date(b[0]);
-      if (isNaN(dateA) || isNaN(dateB)) return 0;
-      // Sort by date descending, then by game number descending
-      if (dateB - dateA !== 0) return dateB - dateA;
-      return parseFloat(b[1] || 0) - parseFloat(a[1] || 0);
-    }).slice(0, 20);
+    const dataRows = sortGamesNewestFirst(rows.slice(1).filter(r => r[2] && r[2].trim() !== '')).slice(0, 20);
 
     list.innerHTML = dataRows.map(row => {
       const players = parsePlayersFromRow(row);
@@ -1091,11 +1086,7 @@ async function loadGameById(gameId, players) {
 
   // Try to find the last used turn number for this game
   try {
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!A:G`
-    });
-    const rows = response.result.values || [];
+    const rows = (await api('getActionLog')).values || [];
     const gameRows = rows.filter(r => r[1] && r[1].toLowerCase() === gameId.toLowerCase());
     console.log('gameId:', gameId, '| total rows:', rows.length, '| matched rows:', gameRows.length);
     if (gameRows.length > 0) {
@@ -1113,7 +1104,7 @@ async function loadGameById(gameId, players) {
   }
 
   // Restore session log if this game was previously active this session
-  const savedLog = sessionStorage.getItem('mtg_session_log_' + gameId);
+  const savedLog = safeGet('mtg_session_log_' + gameId);
   if (savedLog) {
     try { state.sessionLog = JSON.parse(savedLog); } catch(e) { state.sessionLog = []; }
   }
@@ -1126,7 +1117,7 @@ async function loadGameById(gameId, players) {
 async function loadGame() {
   const gameId = document.getElementById('game-id-input') ? document.getElementById('game-id-input').value.trim().toLowerCase() : '';
   if (!gameId) { showToast('Enter a Game ID', 'error'); return; }
-  if (!state.accessToken) { showToast('Connect to Google Sheets first', 'error'); return; }
+  if (!state.connected) { showToast('Connect first', 'error'); return; }
 
   document.getElementById('load-btn') && (document.getElementById('load-btn').textContent = 'Loading...');
 
@@ -1324,7 +1315,7 @@ function updateLogBtn() {
 
 // =================== LOG ACTIONS ===================
 async function logActions() {
-  if (!state.accessToken) { showToast('Not connected', 'error'); return; }
+  if (!state.connected) { showToast('Connect first', 'error'); return; }
   
   state.amount = parseInt(document.getElementById('amount-input').value) || 0;
   
@@ -1343,15 +1334,16 @@ async function logActions() {
   btn.textContent = 'Logging...';
   btn.disabled = true;
 
+  let queued = false;
   try {
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!A:G`,
-      valueInputOption: 'RAW',
-      insertDataOption: 'INSERT_ROWS',
-      resource: { values: rows }
-    });
+    await api('append', { rows });
+  } catch (err) {
+    console.warn('Send failed, saving on device:', err);
+    setQueue(getQueue().concat(rows));
+    queued = true;
+  }
 
+  try {
     // Add to session log
     rows.forEach(row => {
       state.sessionLog.unshift({
@@ -1365,7 +1357,11 @@ async function logActions() {
     });
 
     renderSessionLog();
-    showToast(`${rows.length} action${rows.length > 1 ? 's' : ''} logged ✓`, 'success');
+    if (queued) {
+      showToast('No connection — saved on device, will sync', 'error');
+    } else {
+      showToast(`${rows.length} action${rows.length > 1 ? 's' : ''} logged ✓`, 'success');
+    }
 
     // Clear targets after logging, keep actor + action + increment if damage
     state.targets = [];
@@ -1409,8 +1405,8 @@ function generateId() {
 function renderSessionLog() {
   // Persist session log so it survives token refresh
   if (state.gameId) {
-    sessionStorage.setItem('mtg_session_log_' + state.gameId, JSON.stringify(state.sessionLog));
-    sessionStorage.setItem('mtg_active_game', state.gameId);
+    safeSet('mtg_session_log_' + state.gameId, JSON.stringify(state.sessionLog));
+    safeSet('mtg_active_game', state.gameId);
   }
   const container = document.getElementById('log-entries');
   document.getElementById('log-count').textContent = state.sessionLog.length;
@@ -1635,26 +1631,13 @@ async function deleteEntry(idx) {
   if (!confirm(`Delete: ${entry.actor} → ${entry.action}${entry.target ? ' → ' + entry.target : ''} [${entry.amount}]?`)) return;
 
   try {
-    // Find the row in the sheet by Action ID
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!A:G`
-    });
-    const rows = response.result.values || [];
-    const rowIndex = rows.findIndex(r => r[0] === entry.id);
-
-    if (rowIndex < 0) {
-      showToast('Could not find entry in sheet', 'error');
-      return;
+    // If it never made it to the sheet, just drop it from the device queue
+    const q = getQueue();
+    if (q.some(r => r[0] === entry.id)) {
+      setQueue(q.filter(r => r[0] !== entry.id));
+    } else {
+      await api('delete', { id: entry.id });
     }
-
-    // Clear the row by overwriting with empty values
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!A${rowIndex + 1}:G${rowIndex + 1}`,
-      valueInputOption: 'RAW',
-      resource: { values: [['', '', '', '', '', '', '']] }
-    });
 
     // Remove from session log
     state.sessionLog.splice(idx, 1);
@@ -1737,27 +1720,15 @@ async function saveEdit() {
   updatedRow[0] = entry.id;
 
   try {
-    // Find the row in the sheet by Action ID and update it
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!A:G`
-    });
-    const rows = response.result.values || [];
-    const rowIndex = rows.findIndex(r => r[0] === entry.id);
-
-    if (rowIndex < 0) {
-      showToast('Could not find entry in sheet', 'error');
-      cancelEdit();
-      return;
+    // If it's still waiting to sync, edit it on the device instead
+    const q = getQueue();
+    const qi = q.findIndex(r => r[0] === entry.id);
+    if (qi >= 0) {
+      q[qi] = updatedRow;
+      setQueue(q);
+    } else {
+      await api('update', { id: entry.id, row: updatedRow });
     }
-
-    // Update the row (rowIndex + 1 for 1-based sheet indexing)
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${ACTION_LOG_SHEET}!A${rowIndex + 1}:G${rowIndex + 1}`,
-      valueInputOption: 'RAW',
-      resource: { values: [updatedRow] }
-    });
 
     // Update session log
     state.sessionLog[editingIndex] = {
