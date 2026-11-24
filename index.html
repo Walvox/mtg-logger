@@ -867,7 +867,7 @@ function initBackend() {
 
   if (state.scriptUrl && state.key) {
     setConnected(true);
-    flushQueue();
+    if (getQueue().length) flushQueue(); else warmUpBackend();
   }
   showSetup();
 }
@@ -926,25 +926,44 @@ function updatePendingBadge() {
   dot.style.boxShadow = q.length ? '0 0 8px var(--gold)' : '';
 }
 
-let flushing = false;
-async function flushQueue() {
-  if (flushing || !state.connected) return;
-  const q = getQueue();
-  if (!q.length) { updatePendingBadge(); return; }
-  flushing = true;
-  try {
-    await api('append', { rows: q });
-    setQueue([]);
-    showToast(`${q.length} saved action${q.length > 1 ? 's' : ''} synced ✓`, 'success');
-  } catch (err) {
-    console.warn('Sync retry failed:', err);
+// Sends everything waiting on the device. Rows logged while a send is in flight
+// are picked up by the next loop, so nothing waits for the 30-second timer.
+let flushPromise = null;
+let lastSyncFailed = false;
+function flushQueue() {
+  if (!state.connected) return Promise.resolve();
+  if (!flushPromise) flushPromise = doFlush().finally(() => { flushPromise = null; });
+  return flushPromise;
+}
+async function doFlush() {
+  while (true) {
+    const q = getQueue();
+    if (!q.length) { updatePendingBadge(); return; }
+    try {
+      await api('append', { rows: q });
+      // Only drop the rows we actually sent; keep anything added meanwhile
+      const sentIds = new Set(q.map(r => r[0]));
+      setQueue(getQueue().filter(r => !sentIds.has(r[0])));
+      if (lastSyncFailed) showToast('Back online, all actions synced ✓', 'success');
+      lastSyncFailed = false;
+    } catch (err) {
+      console.warn('Sync failed, will retry:', err);
+      if (!lastSyncFailed) showToast('No connection, saved on device, will sync', 'error');
+      lastSyncFailed = true;
+      return;
+    }
   }
-  flushing = false;
+}
+
+// Apps Script goes to sleep when idle and the first request after that is slow.
+// A cheap ping on open / when returning to the app wakes it up before you log anything.
+function warmUpBackend() {
+  if (state.connected) api('ping').catch(() => {});
 }
 
 setInterval(flushQueue, 30000);
 window.addEventListener('online', flushQueue);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) flushQueue(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { flushQueue(); warmUpBackend(); } });
 
 // =================== SCREENS ===================
 function showSetup() {
@@ -1342,18 +1361,10 @@ async function logActions() {
     rows.push(buildRow(state.actor.id, state.action, '', state.amount, state.turn));
   }
 
-  const btn = document.getElementById('log-btn');
-  btn.textContent = 'Logging...';
-  btn.disabled = true;
-
-  let queued = false;
-  try {
-    await api('append', { rows });
-  } catch (err) {
-    console.warn('Send failed, saving on device:', err);
-    setQueue(getQueue().concat(rows));
-    queued = true;
-  }
+  // Save on the device right away and send in the background,
+  // so the button doesn't wait on Google
+  setQueue(getQueue().concat(rows));
+  flushQueue();
 
   try {
     // Add to session log
@@ -1369,11 +1380,7 @@ async function logActions() {
     });
 
     renderSessionLog();
-    if (queued) {
-      showToast('No connection — saved on device, will sync', 'error');
-    } else {
-      showToast(`${rows.length} action${rows.length > 1 ? 's' : ''} logged ✓`, 'success');
-    }
+    showToast(`${rows.length} action${rows.length > 1 ? 's' : ''} logged ✓`, 'success');
 
     // Clear targets after logging, keep actor + action + increment if damage
     state.targets = [];
@@ -1387,7 +1394,6 @@ async function logActions() {
     showToast('Failed to log. Check connection.', 'error');
   }
 
-  btn.disabled = false;
   updateLogBtn();
 }
 
@@ -1643,6 +1649,7 @@ async function deleteEntry(idx) {
   if (!confirm(`Delete: ${entry.actor} → ${entry.action}${entry.target ? ' → ' + entry.target : ''} [${entry.amount}]?`)) return;
 
   try {
+    if (flushPromise) await flushPromise;
     // If it never made it to the sheet, just drop it from the device queue
     const q = getQueue();
     if (q.some(r => r[0] === entry.id)) {
@@ -1735,6 +1742,7 @@ async function saveEdit() {
   updatedRow[0] = entry.id;
 
   try {
+    if (flushPromise) await flushPromise;
     // If it's still waiting to sync, edit it on the device instead
     const q = getQueue();
     const qi = q.findIndex(r => r[0] === entry.id);
